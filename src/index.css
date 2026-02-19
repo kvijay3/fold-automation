@@ -89,6 +89,11 @@ body {
   animation-delay: 0.2s;
 }
 
+@keyframes slide-in-right {
+  from { transform: translateX(40px); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+
 .skeleton {
   background: linear-gradient(
     90deg,

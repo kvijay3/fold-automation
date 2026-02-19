@@ -108,20 +108,24 @@ def fold_sequence(seq_id: str, sequence: str, fasta_filename: str = "") -> dict:
         n = len(sequence)
         sid = safe_filename(seq_id)
 
-        # MFE fold
+        # MFE fold — rebuild char-by-char for the same SWIG reason
         fc = RNA.fold_compound(sequence)
         (mfe_structure, mfe) = fc.mfe()
-        mfe_structure = str(mfe_structure).strip()
+        mfe_structure = ''.join(c for c in str(mfe_structure) if c in '().')
 
         # Partition function + bpp
         fc.exp_params_rescale(mfe)
         fc.pf()
         bppm = fc.bpp()  # 1-based, upper-triangular
 
-        # Centroid structure
+        # Centroid structure — rebuild char-by-char to get a pure Python str
+        # (SWIG-wrapped strings fail the char* type check in PS_rna_plot_a)
         centroid_result = fc.centroid()
         raw_centroid = centroid_result[0] if isinstance(centroid_result, tuple) else centroid_result
-        centroid_structure = str(raw_centroid).strip() if raw_centroid else None
+        centroid_structure = ''.join(c for c in str(raw_centroid) if c in '().') if raw_centroid else None
+        # Verify length matches sequence to avoid ViennaRNA assertion errors
+        if centroid_structure and len(centroid_structure) != n:
+            centroid_structure = None
 
         # Per-nucleotide pairing probability
         pair_prob = [0.0] * (n + 1)
@@ -140,20 +144,34 @@ def fold_sequence(seq_id: str, sequence: str, fasta_filename: str = "") -> dict:
 
         # MFE structure image
         colored_img_bytes: bytes | None = None
-        with tempfile.TemporaryDirectory() as tmp:
-            ps_path = Path(tmp) / f"{sid}_mfe.ps"
-            RNA.PS_rna_plot_a(sequence, mfe_structure, str(ps_path), pre_annotations, "")
-            if ps_path.exists():
-                colored_img_bytes = ps_to_png_bytes(ps_path.read_bytes())
+        colored_img_error: str | None = None
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                ps_path = Path(tmp) / f"{sid}_mfe.ps"
+                RNA.PS_rna_plot_a(sequence, mfe_structure, str(ps_path), pre_annotations, "")
+                if ps_path.exists():
+                    colored_img_bytes = ps_to_png_bytes(ps_path.read_bytes())
+                else:
+                    colored_img_error = "PS_rna_plot_a did not write MFE ps file"
+        except Exception as e:
+            colored_img_error = f"MFE image: {e}"
 
         # Centroid structure image (same bpp coloring, different topology)
         centroid_img_bytes: bytes | None = None
+        centroid_img_error: str | None = None
         if centroid_structure:
-            with tempfile.TemporaryDirectory() as tmp:
-                ps_path = Path(tmp) / f"{sid}_centroid.ps"
-                RNA.PS_rna_plot_a(sequence, centroid_structure, str(ps_path), pre_annotations, "")
-                if ps_path.exists():
-                    centroid_img_bytes = ps_to_png_bytes(ps_path.read_bytes())
+            try:
+                with tempfile.TemporaryDirectory() as tmp:
+                    ps_path = Path(tmp) / f"{sid}_centroid.ps"
+                    RNA.PS_rna_plot_a(sequence, centroid_structure, str(ps_path), pre_annotations, "")
+                    if ps_path.exists():
+                        centroid_img_bytes = ps_to_png_bytes(ps_path.read_bytes())
+                    else:
+                        centroid_img_error = "PS_rna_plot_a did not write centroid ps file"
+            except Exception as e:
+                centroid_img_error = f"Centroid image: {e}"
+        else:
+            centroid_img_error = "No centroid structure returned"
 
         # Dot-plot via RNAfold -p subprocess (fc.plot_dp_PS absent in ViennaRNA 2.7)
         dp_img_bytes: bytes | None = None
@@ -185,6 +203,7 @@ def fold_sequence(seq_id: str, sequence: str, fasta_filename: str = "") -> dict:
             "centroid_img_bytes": centroid_img_bytes,
             "dp_img_bytes": dp_img_bytes,
             "error": None,
+            "img_errors": [e for e in [colored_img_error, centroid_img_error] if e],
         }
 
     except Exception as exc:
@@ -203,6 +222,7 @@ def _fold_error(fasta_file: str, seq_id: str, sequence: str, msg: str) -> dict:
         "centroid_img_bytes": None,
         "dp_img_bytes": None,
         "error": msg,
+        "img_errors": [],
     }
 
 
@@ -275,6 +295,7 @@ def web():
                 r["colored_img_url"]  = make_url(request, save_image(colored_bytes))  if colored_bytes  else None
                 r["centroid_img_url"] = make_url(request, save_image(centroid_bytes)) if centroid_bytes else None
                 r["dp_img_url"]       = make_url(request, save_image(dp_bytes))       if dp_bytes       else None
+                # keep img_errors from fold_sequence; already in r
                 results.append(r)
 
         return results
@@ -294,4 +315,5 @@ def _api_error(filename: str, msg: str) -> dict:
         "centroid_img_url": None,
         "dp_img_url": None,
         "error": msg,
+        "img_errors": [],
     }

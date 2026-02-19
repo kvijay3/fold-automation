@@ -5,6 +5,7 @@ import { Download } from 'lucide-react';
 interface DashboardProps {
   results: SequenceResult[];
   cols: 2 | 3 | 4;
+  onCardClick: (result: SequenceResult) => void;
 }
 
 function toTSV(results: SequenceResult[]): string {
@@ -36,7 +37,7 @@ function downloadTSV(results: SequenceResult[]) {
   URL.revokeObjectURL(url);
 }
 
-export function Dashboard({ results, cols }: DashboardProps) {
+export function Dashboard({ results, cols, onCardClick }: DashboardProps) {
   const mfes = results.map((r) => r.mfe).filter((m): m is number => m !== null);
   const files = [...new Set(results.map((r) => r.fasta_file))];
 
@@ -91,7 +92,7 @@ export function Dashboard({ results, cols }: DashboardProps) {
       {/* ── Card grid ── */}
       <div className={`grid ${colClass} gap-4`}>
         {results.map((r, i) => (
-          <SequenceCard key={`${r.fasta_file}-${r.seq_id}-${i}`} result={r} index={i} />
+          <SequenceCard key={`${r.fasta_file}-${r.seq_id}-${i}`} result={r} index={i} onClick={() => onCardClick(r)} />
         ))}
       </div>
 

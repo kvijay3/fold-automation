@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { UploadZone } from './components/UploadZone';
 import { Dashboard } from './components/Dashboard';
 import { ColorLegend } from './components/ColorLegend';
+import { SequenceDetail } from './components/SequenceDetail';
 import { predictStructures } from './lib/api';
 import type { SequenceResult } from './lib/types';
 import { Layers } from 'lucide-react';
@@ -37,11 +38,12 @@ function SkeletonGrid({ cols, n }: { cols: GridCols; n: number }) {
 }
 
 export default function App() {
-  const [files, setFiles]     = useState<File[]>([]);
-  const [results, setResults] = useState<SequenceResult[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError]     = useState<string | null>(null);
-  const [cols, setCols]       = useState<GridCols>(3);
+  const [files, setFiles]           = useState<File[]>([]);
+  const [results, setResults]       = useState<SequenceResult[]>([]);
+  const [loading, setLoading]       = useState(false);
+  const [error, setError]           = useState<string | null>(null);
+  const [cols, setCols]             = useState<GridCols>(3);
+  const [selected, setSelected]     = useState<SequenceResult | null>(null);
 
   const handleRun = async () => {
     if (!files.length) return;
@@ -195,7 +197,7 @@ export default function App() {
 
         {/* Results */}
         {!loading && hasResults && (
-          <Dashboard results={results} cols={cols} />
+          <Dashboard results={results} cols={cols} onCardClick={setSelected} />
         )}
 
         {/* Empty state */}
@@ -224,6 +226,11 @@ export default function App() {
           </div>
         )}
       </main>
+
+      {/* Detail overlay */}
+      {selected && (
+        <SequenceDetail result={selected} onClose={() => setSelected(null)} />
+      )}
     </div>
   );
 }

@@ -12,4 +12,5 @@ export interface SequenceResult {
   /** URL to PNG: dot-plot probability matrix */
   dp_img_url: string | null;
   error?: string | null;
+  img_errors?: string[];
 }
