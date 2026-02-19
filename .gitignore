@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+*.egg-info/
+dist/
+.venv/
+venv/
+
+# Modal
+.modal/
+
+# Node / Frontend
+node_modules/
+frontend/dist/
+frontend/.env.local
+frontend/.env
+
+# OS
+.DS_Store
+Thumbs.db

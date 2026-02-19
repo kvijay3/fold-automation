@@ -1,0 +1,102 @@
+@import url("https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
+@import "tailwindcss";
+
+/* ─── Design Tokens ─────────────────────────────────────── */
+:root {
+  --bg:           #050810;
+  --surface:      #0C1221;
+  --border:       #1A2540;
+  --border-glow:  #22D3EE30;
+  --text-primary: #E8F0FE;
+  --text-muted:   #5B7BA6;
+  --accent-cyan:  #22D3EE;
+  --accent-amber: #F59E0B;
+  --high-tia:     #F43F5E;
+  --low-tia:      #34D399;
+  --scan-line:    rgba(255,255,255,0.015);
+}
+
+/* ─── Base ──────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Figtree', sans-serif;
+  background-color: var(--bg);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  /* CRT scan-line overlay */
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent,
+    transparent 4px,
+    var(--scan-line) 4px,
+    var(--scan-line) 6px
+  );
+}
+
+/* ─── Utility classes ──────────────────────────────────── */
+.font-display { font-family: 'Bebas Neue', sans-serif; }
+.font-body    { font-family: 'Figtree', sans-serif; }
+.font-mono    { font-family: 'JetBrains Mono', monospace; }
+
+/* ─── Animations ────────────────────────────────────────── */
+@keyframes pulse-slow {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+
+@keyframes shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+
+@keyframes slide-in-left {
+  from { transform: translateX(-20px); opacity: 0; }
+  to   { transform: translateX(0);     opacity: 1; }
+}
+
+@keyframes fade-down {
+  from { transform: translateY(-10px); opacity: 0; }
+  to   { transform: translateY(0);     opacity: 1; }
+}
+
+@keyframes rise-up {
+  from { transform: translateY(16px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+@keyframes trace-border {
+  0%   { background-position: 0% 0%; }
+  100% { background-position: 400% 0%; }
+}
+
+.animate-pulse-slow {
+  animation: pulse-slow 3s ease-in-out infinite;
+}
+
+.animate-slide-in-left {
+  animation: slide-in-left 0.3s ease-out both;
+}
+
+.animate-fade-down {
+  animation: fade-down 0.2s ease-out both;
+  animation-delay: 0.2s;
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--surface) 25%,
+    #162035 50%,
+    var(--surface) 75%
+  );
+  background-size: 400px 100%;
+  animation: shimmer 1.4s linear infinite;
+  border-radius: 4px;
+}
