@@ -103,6 +103,7 @@ def fold_sequence(seq_id: str, sequence: str, fasta_filename: str = "") -> dict:
         # --- MFE fold ---
         fc = RNA.fold_compound(sequence)
         (mfe_structure, mfe) = fc.mfe()
+        mfe_structure = str(mfe_structure).strip()
 
         # --- Partition function + bpp ---
         fc.exp_params_rescale(mfe)
@@ -112,6 +113,7 @@ def fold_sequence(seq_id: str, sequence: str, fasta_filename: str = "") -> dict:
         # --- Centroid structure ---
         centroid_result = fc.centroid()
         centroid_structure = centroid_result[0] if isinstance(centroid_result, tuple) else centroid_result
+        centroid_structure = str(centroid_structure).strip() if centroid_structure else None
 
         # --- Per-nucleotide pairing probability ---
         pair_prob = [0.0] * (n + 1)
