@@ -5,9 +5,9 @@ export interface SequenceResult {
   mfe: number | null;
   mfe_structure: string | null;
   centroid_structure: string | null;
-  /** Base64-encoded PNG: nucleotides colored blue→red by pair probability */
-  colored_img_b64: string | null;
-  /** Base64-encoded PNG: dot-plot probability matrix */
-  dp_img_b64: string | null;
+  /** URL to PNG: nucleotides colored blue→red by pair probability */
+  colored_img_url: string | null;
+  /** URL to PNG: dot-plot probability matrix */
+  dp_img_url: string | null;
   error?: string | null;
 }

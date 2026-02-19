@@ -46,9 +46,9 @@ export function SequenceCard({ result, index }: SequenceCardProps) {
         className="relative w-full flex items-center justify-center"
         style={{ background: '#060b16', minHeight: 180 }}
       >
-        {result.colored_img_b64 ? (
+        {result.colored_img_url ? (
           <img
-            src={`data:image/png;base64,${result.colored_img_b64}`}
+            src={result.colored_img_url}
             alt={`RNA structure: ${result.seq_id}`}
             className="w-full object-contain"
             style={{ maxHeight: 260 }}
@@ -137,7 +137,7 @@ export function SequenceCard({ result, index }: SequenceCardProps) {
         )}
 
         {/* Collapsible dot-plot */}
-        {result.dp_img_b64 && (
+        {result.dp_img_url && (
           <div>
             <button
               onClick={() => setDpOpen(!dpOpen)}
@@ -154,7 +154,7 @@ export function SequenceCard({ result, index }: SequenceCardProps) {
             </button>
             {dpOpen && (
               <img
-                src={`data:image/png;base64,${result.dp_img_b64}`}
+                src={result.dp_img_url}
                 alt="Dot-plot"
                 className="w-full mt-2 rounded"
                 style={{ background: '#060b16' }}
