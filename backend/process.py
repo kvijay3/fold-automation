@@ -80,15 +80,16 @@ def fold_sequence(seq_id: str, sequence: str, fasta_filename: str = "") -> dict:
     Fold one RNA sequence using ViennaRNA.
 
     Returns:
-        fasta_file          : str
-        seq_id              : str
-        length              : int
-        mfe                 : float | None
-        mfe_structure       : str | None
-        centroid_structure  : str | None
-        colored_img_bytes   : bytes | None  — structure colored by bpp
-        dp_img_bytes        : bytes | None  — dot-plot matrix
-        error               : str | None
+        fasta_file            : str
+        seq_id                : str
+        length                : int
+        mfe                   : float | None
+        mfe_structure         : str | None
+        centroid_structure    : str | None
+        colored_img_bytes     : bytes | None  — MFE structure colored by bpp
+        centroid_img_bytes    : bytes | None  — centroid structure colored by bpp
+        dp_img_bytes          : bytes | None  — dot-plot probability matrix
+        error                 : str | None
     """
     try:
         import RNA
@@ -134,6 +135,15 @@ def fold_sequence(seq_id: str, sequence: str, fasta_filename: str = "") -> dict:
             if colored_ps_path.exists():
                 colored_img_bytes = ps_to_png_bytes(colored_ps_path.read_bytes())
 
+        # --- Centroid structure PNG (same bpp coloring, different topology) ---
+        centroid_img_bytes: bytes | None = None
+        if centroid_structure:
+            with tempfile.TemporaryDirectory() as tmp:
+                centroid_ps_path = Path(tmp) / f"{sid}_centroid.ps"
+                RNA.PS_rna_plot_a(sequence, centroid_structure, str(centroid_ps_path), pre_annotations, "")
+                if centroid_ps_path.exists():
+                    centroid_img_bytes = ps_to_png_bytes(centroid_ps_path.read_bytes())
+
         # --- Dot-plot PNG via RNAfold -p subprocess ---
         # fc.plot_dp_PS() is not available in ViennaRNA 2.7; use CLI instead.
         # The ViennaRNA PyPI package ships the RNAfold binary on Linux.
@@ -163,6 +173,7 @@ def fold_sequence(seq_id: str, sequence: str, fasta_filename: str = "") -> dict:
             "mfe_structure": mfe_structure,
             "centroid_structure": centroid_structure,
             "colored_img_bytes": colored_img_bytes,
+            "centroid_img_bytes": centroid_img_bytes,
             "dp_img_bytes": dp_img_bytes,
             "error": None,
         }
@@ -180,6 +191,7 @@ def _error(fasta_file: str, seq_id: str, sequence: str, msg: str) -> dict:
         "mfe_structure": None,
         "centroid_structure": None,
         "colored_img_bytes": None,
+        "centroid_img_bytes": None,
         "dp_img_bytes": None,
         "error": msg,
     }

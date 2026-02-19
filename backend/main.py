@@ -114,19 +114,13 @@ def web():
                 r = fold_sequence(seq_id, sequence, upload.filename)
 
                 # Store images in volume, replace bytes with URLs
-                colored_url = None
-                dp_url = None
+                colored_bytes   = r.pop("colored_img_bytes", None)
+                centroid_bytes  = r.pop("centroid_img_bytes", None)
+                dp_bytes        = r.pop("dp_img_bytes", None)
 
-                colored_bytes = r.pop("colored_img_bytes", None)
-                dp_bytes = r.pop("dp_img_bytes", None)
-
-                if colored_bytes:
-                    colored_url = make_url(request, save_image(colored_bytes))
-                if dp_bytes:
-                    dp_url = make_url(request, save_image(dp_bytes))
-
-                r["colored_img_url"] = colored_url
-                r["dp_img_url"] = dp_url
+                r["colored_img_url"]  = make_url(request, save_image(colored_bytes))  if colored_bytes  else None
+                r["centroid_img_url"] = make_url(request, save_image(centroid_bytes)) if centroid_bytes else None
+                r["dp_img_url"]       = make_url(request, save_image(dp_bytes))       if dp_bytes       else None
                 results.append(r)
 
         return results
@@ -143,6 +137,7 @@ def _file_error(filename: str, msg: str) -> dict:
         "mfe_structure": None,
         "centroid_structure": None,
         "colored_img_url": None,
+        "centroid_img_url": None,
         "dp_img_url": None,
         "error": msg,
     }

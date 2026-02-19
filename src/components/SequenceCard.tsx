@@ -14,20 +14,53 @@ function inferBadge(result: SequenceResult): { label: string; color: string } | 
   return null;
 }
 
+function ImagePanel({
+  url,
+  label,
+  alt,
+}: {
+  url: string | null;
+  label: string;
+  alt: string;
+}) {
+  return (
+    <div>
+      <p
+        className="text-xs px-3 pt-2 pb-1 font-semibold tracking-widest"
+        style={{ color: 'var(--text-muted)', fontFamily: 'Bebas Neue, sans-serif', fontSize: 11 }}
+      >
+        {label}
+      </p>
+      <div
+        className="w-full flex items-center justify-center"
+        style={{ background: '#060b16', minHeight: 160 }}
+      >
+        {url ? (
+          <img
+            src={url}
+            alt={alt}
+            className="w-full object-contain"
+            style={{ maxHeight: 240 }}
+          />
+        ) : (
+          <div className="flex flex-col items-center gap-1 py-8" style={{ color: 'var(--text-muted)' }}>
+            <span className="text-xl opacity-30">◈</span>
+            <span className="text-xs" style={{ fontFamily: 'Figtree, sans-serif' }}>No image</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function SequenceCard({ result, index }: SequenceCardProps) {
   const [dpOpen, setDpOpen] = useState(false);
   const badge = inferBadge(result);
 
-  const cardStyle: React.CSSProperties = {
-    animationDelay: `${index * 50}ms`,
-    animationFillMode: 'both',
-  };
-
   return (
     <article
-      className="rounded-xl overflow-hidden flex flex-col transition-all duration-200 group animate-rise-up"
+      className="rounded-xl overflow-hidden flex flex-col transition-all duration-200 group"
       style={{
-        ...cardStyle,
         background: 'var(--surface)',
         border: '1px solid var(--border)',
         animation: `rise-up 0.35s ease-out ${index * 50}ms both`,
@@ -41,36 +74,33 @@ export function SequenceCard({ result, index }: SequenceCardProps) {
         (e.currentTarget as HTMLElement).style.transform = 'translateY(0)';
       }}
     >
-      {/* ── Colored structure image ── */}
-      <div
-        className="relative w-full flex items-center justify-center"
-        style={{ background: '#060b16', minHeight: 180 }}
-      >
-        {result.colored_img_url ? (
-          <img
-            src={result.colored_img_url}
-            alt={`RNA structure: ${result.seq_id}`}
-            className="w-full object-contain"
-            style={{ maxHeight: 260 }}
-          />
-        ) : (
-          <div
-            className="flex flex-col items-center gap-2 py-10"
-            style={{ color: 'var(--text-muted)' }}
-          >
-            <span className="text-2xl opacity-40">◈</span>
-            <span className="text-xs font-body">{result.error ?? 'No image'}</span>
-          </div>
-        )}
-        {/* Cyan left-border accent on hover */}
+      {/* Cyan left-border accent on hover */}
+      <div className="relative">
         <div
-          className="absolute left-0 top-0 bottom-0 w-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+          className="absolute left-0 top-0 bottom-0 w-0.5 z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-200"
           style={{ background: 'var(--accent-cyan)' }}
+        />
+
+        {/* ── MFE structure image ── */}
+        <ImagePanel
+          url={result.colored_img_url}
+          label="MFE STRUCTURE"
+          alt={`MFE structure: ${result.seq_id}`}
+        />
+
+        {/* ── Divider ── */}
+        <div style={{ height: 1, background: 'var(--border)' }} />
+
+        {/* ── Centroid structure image ── */}
+        <ImagePanel
+          url={result.centroid_img_url}
+          label="CENTROID STRUCTURE"
+          alt={`Centroid structure: ${result.seq_id}`}
         />
       </div>
 
       {/* ── Card body ── */}
-      <div className="p-3 flex flex-col gap-2">
+      <div className="p-3 flex flex-col gap-2" style={{ borderTop: '1px solid var(--border)' }}>
         {/* Name + badge */}
         <div className="flex items-center gap-2 flex-wrap">
           <span
@@ -98,10 +128,7 @@ export function SequenceCard({ result, index }: SequenceCardProps) {
         {/* MFE + length */}
         <div className="flex items-baseline gap-3">
           {result.mfe !== null ? (
-            <span
-              className="font-display text-lg"
-              style={{ color: 'var(--accent-amber)' }}
-            >
+            <span className="font-display text-lg" style={{ color: 'var(--accent-amber)' }}>
               {result.mfe > 0 ? '+' : ''}{result.mfe} kcal/mol
             </span>
           ) : (
@@ -112,12 +139,12 @@ export function SequenceCard({ result, index }: SequenceCardProps) {
           </span>
         </div>
 
-        {/* MFE structure */}
+        {/* MFE structure string */}
         {result.mfe_structure && (
           <StructurePill label="MFE" structure={result.mfe_structure} />
         )}
 
-        {/* Centroid structure */}
+        {/* Centroid structure string */}
         {result.centroid_structure && (
           <StructurePill label="Centroid" structure={result.centroid_structure} />
         )}
@@ -142,15 +169,12 @@ export function SequenceCard({ result, index }: SequenceCardProps) {
             <button
               onClick={() => setDpOpen(!dpOpen)}
               className="flex items-center gap-1 text-xs transition-colors"
-              style={{
-                color: 'var(--text-muted)',
-                fontFamily: 'Figtree, sans-serif',
-              }}
+              style={{ color: 'var(--text-muted)', fontFamily: 'Figtree, sans-serif' }}
               onMouseEnter={(e) => ((e.target as HTMLElement).style.color = 'var(--accent-cyan)')}
               onMouseLeave={(e) => ((e.target as HTMLElement).style.color = 'var(--text-muted)')}
             >
               {dpOpen ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-              Dot-plot
+              Dot-plot (base-pair probability)
             </button>
             {dpOpen && (
               <img
@@ -170,10 +194,7 @@ export function SequenceCard({ result, index }: SequenceCardProps) {
 function StructurePill({ label, structure }: { label: string; structure: string }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <span
-        className="text-xs"
-        style={{ color: 'var(--text-muted)', fontFamily: 'Figtree, sans-serif' }}
-      >
+      <span className="text-xs" style={{ color: 'var(--text-muted)', fontFamily: 'Figtree, sans-serif' }}>
         {label}
       </span>
       <span
