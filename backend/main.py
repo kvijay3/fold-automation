@@ -5,10 +5,13 @@ Deploy:  modal deploy backend/main.py
 Dev:     modal serve backend/main.py
 """
 
+from pathlib import Path
+
 import modal
 
 # ---------------------------------------------------------------------------
 # Modal image: Debian + Ghostscript + ViennaRNA + FastAPI
+# process.py is bundled into the image so it is importable at runtime.
 # ---------------------------------------------------------------------------
 
 image = (
@@ -18,6 +21,10 @@ image = (
         "ViennaRNA",
         "fastapi",
         "python-multipart",
+    )
+    .add_local_file(
+        Path(__file__).parent / "process.py",
+        "/root/process.py",
     )
 )
 
