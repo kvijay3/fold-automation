@@ -95,6 +95,40 @@ def ps_to_png_bytes(ps_content: bytes) -> bytes | None:
 
 
 # ---------------------------------------------------------------------------
+# Centroid fallback from bpp matrix
+# ---------------------------------------------------------------------------
+
+def _centroid_from_bpp(bppm, n: int) -> str:
+    """
+    Derive centroid structure directly from the bpp matrix.
+    Include base pair (i, j) when P(i,j) > 0.5 and the pair doesn't conflict
+    with an already-accepted pair. Pairs are checked in descending probability
+    order so the most confident pairs are placed first.
+    """
+    # Collect all candidate pairs with their probability
+    candidates: list[tuple[float, int, int]] = []
+    for i in range(1, n + 1):
+        for j in range(i + 3, n + 1):  # minimum hairpin loop of 3
+            p = bppm[i][j]
+            if p > 0.5:
+                candidates.append((p, i, j))
+    candidates.sort(reverse=True)
+
+    paired: dict[int, int] = {}
+    for _, i, j in candidates:
+        if i not in paired and j not in paired:
+            paired[i] = j
+            paired[j] = i
+
+    arr = ['.'] * n
+    for i, j in paired.items():
+        if i < j:
+            arr[i - 1] = '('
+            arr[j - 1] = ')'
+    return ''.join(arr)
+
+
+# ---------------------------------------------------------------------------
 # Fold one sequence
 # ---------------------------------------------------------------------------
 
@@ -118,14 +152,25 @@ def fold_sequence(seq_id: str, sequence: str, fasta_filename: str = "") -> dict:
         fc.pf()
         bppm = fc.bpp()  # 1-based, upper-triangular
 
-        # Centroid structure — rebuild char-by-char to get a pure Python str
-        # (SWIG-wrapped strings fail the char* type check in PS_rna_plot_a)
-        centroid_result = fc.centroid()
-        raw_centroid = centroid_result[0] if isinstance(centroid_result, tuple) else centroid_result
-        centroid_structure = ''.join(c for c in str(raw_centroid) if c in '().') if raw_centroid else None
-        # Verify length matches sequence to avoid ViennaRNA assertion errors
-        if centroid_structure and len(centroid_structure) != n:
-            centroid_structure = None
+        # Centroid structure — try fc.centroid() first, fall back to bpp matrix
+        centroid_structure: str | None = None
+        try:
+            centroid_result = fc.centroid()
+            print(f"DEBUG centroid type={type(centroid_result)} repr={repr(centroid_result)[:80]}", flush=True)
+            raw = centroid_result[0] if isinstance(centroid_result, (tuple, list)) else centroid_result
+            if raw is not None:
+                candidate = ''.join(c for c in str(raw) if c in '().')
+                if len(candidate) == n:
+                    centroid_structure = candidate
+                else:
+                    print(f"DEBUG centroid length mismatch: got {len(candidate)}, expected {n}", flush=True)
+        except Exception as e:
+            print(f"DEBUG centroid exception: {e}", flush=True)
+
+        if centroid_structure is None:
+            # Fallback: derive centroid from bpp — include pair (i,j) if P(i,j) > 0.5
+            print("DEBUG using bpp fallback for centroid", flush=True)
+            centroid_structure = _centroid_from_bpp(bppm, n)
 
         # Per-nucleotide pairing probability
         pair_prob = [0.0] * (n + 1)

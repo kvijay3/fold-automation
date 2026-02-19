@@ -42,7 +42,7 @@ export default function App() {
   const [results, setResults]       = useState<SequenceResult[]>([]);
   const [loading, setLoading]       = useState(false);
   const [error, setError]           = useState<string | null>(null);
-  const [cols, setCols]             = useState<GridCols>(3);
+  const [cols]                      = useState<GridCols>(2);
   const [selected, setSelected]     = useState<SequenceResult | null>(null);
 
   const handleRun = async () => {
@@ -83,7 +83,7 @@ export default function App() {
             className="font-display tracking-widest text-sm"
             style={{ color: 'var(--accent-cyan)' }}
           >
-            RNA STRUCTURE LAB
+            FOLD AUTOMATION
           </span>
         </div>
 
@@ -117,38 +117,6 @@ export default function App() {
             onRun={handleRun}
             loading={loading}
           />
-        </div>
-
-        {/* Settings */}
-        <div className="py-4 px-3" style={{ borderBottom: '1px solid var(--border)' }}>
-          <p
-            className="font-display text-xs tracking-widest mb-3"
-            style={{ color: 'var(--text-muted)' }}
-          >
-            SETTINGS
-          </p>
-          <label
-            className="text-xs mb-1 block"
-            style={{ color: 'var(--text-muted)', fontFamily: 'Figtree, sans-serif' }}
-          >
-            Grid columns
-          </label>
-          <div className="flex gap-1">
-            {([2, 3, 4] as GridCols[]).map((n) => (
-              <button
-                key={n}
-                onClick={() => setCols(n)}
-                className="flex-1 py-1.5 rounded text-xs font-body transition-all duration-150"
-                style={{
-                  background: cols === n ? 'rgba(34,211,238,0.15)' : 'transparent',
-                  border: `1px solid ${cols === n ? 'var(--accent-cyan)' : 'var(--border)'}`,
-                  color: cols === n ? 'var(--accent-cyan)' : 'var(--text-muted)',
-                }}
-              >
-                {n}
-              </button>
-            ))}
-          </div>
         </div>
 
         {/* Color legend */}
