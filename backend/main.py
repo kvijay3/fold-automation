@@ -227,36 +227,21 @@ def fold_sequence(seq_id: str, sequence: str, fasta_filename: str = "") -> dict:
         else:
             centroid_img_error = "No centroid structure computed"
 
-        # ── Dot-plot via RNAfold -p subprocess ──
+        # ── Dot-plot via ViennaRNA Python API ──
         dp_img_bytes: bytes | None = None
         dp_img_error: str | None = None
-        with tempfile.TemporaryDirectory() as tmp:
-            tmp_path = Path(tmp)
-            input_fa = tmp_path / f"{sid}.fa"
-            input_fa.write_text(f">{sid}\n{sequence}\n")
-            try:
-                subprocess.run(
-                    ["RNAfold", "-p", str(input_fa)],
-                    cwd=str(tmp_path),
-                    capture_output=True,
-                    timeout=300,
-                )
-                # Robust file detection — try exact name, then glob
-                dp_ps = tmp_path / f"{sid}_dp.ps"
-                if not dp_ps.exists():
-                    candidates = sorted(tmp_path.glob("*_dp.ps"))
-                    if not candidates:
-                        candidates = sorted(tmp_path.glob("*dp*.ps"))
-                    if candidates:
-                        dp_ps = candidates[0]
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                dp_ps = Path(tmp) / f"{sid}_dp.ps"
+                # pf_fold (free function) stores bpp internally for PS_dot_plot
+                RNA.pf_fold(sequence)
+                RNA.PS_dot_plot(sequence, str(dp_ps))
                 if dp_ps.exists():
                     dp_img_bytes = ps_to_png_bytes(dp_ps.read_bytes())
                 else:
-                    dp_img_error = "Dot-plot PS file not found"
-            except FileNotFoundError:
-                dp_img_error = "RNAfold command not found"
-            except subprocess.TimeoutExpired:
-                dp_img_error = "RNAfold -p timed out"
+                    dp_img_error = "Dot-plot PS file not generated"
+        except Exception as e:
+            dp_img_error = f"Dot-plot: {e}"
 
         return {
             "fasta_file": fasta_filename,
