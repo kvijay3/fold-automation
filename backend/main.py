@@ -261,6 +261,7 @@ def fold_sequence(seq_id: str, sequence: str, fasta_filename: str = "") -> dict:
         return {
             "fasta_file": fasta_filename,
             "seq_id": seq_id,
+            "sequence": sequence,
             "length": n,
             "mfe": round(float(mfe), 2),
             "mfe_structure": mfe_structure,
@@ -280,6 +281,7 @@ def _fold_error(fasta_file: str, seq_id: str, sequence: str, msg: str) -> dict:
     return {
         "fasta_file": fasta_file,
         "seq_id": seq_id,
+        "sequence": sequence,
         "length": len(sequence),
         "mfe": None,
         "mfe_structure": None,
@@ -373,6 +375,7 @@ def _api_error(filename: str, msg: str) -> dict:
     return {
         "fasta_file": filename,
         "seq_id": "—",
+        "sequence": None,
         "length": 0,
         "mfe": None,
         "mfe_structure": None,

@@ -1,6 +1,7 @@
 export interface SequenceResult {
   fasta_file: string;
   seq_id: string;
+  sequence: string | null;
   length: number;
   mfe: number | null;
   mfe_structure: string | null;
