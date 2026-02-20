@@ -142,7 +142,7 @@ def fold_sequence(seq_id: str, sequence: str, fasta_filename: str = "") -> dict:
         n = len(sequence)
         sid = safe_filename(seq_id)
 
-        # MFE fold — rebuild char-by-char for the same SWIG reason
+        # MFE fold
         fc = RNA.fold_compound(sequence)
         (mfe_structure, mfe) = fc.mfe()
         mfe_structure = ''.join(c for c in str(mfe_structure) if c in '().')
@@ -152,27 +152,24 @@ def fold_sequence(seq_id: str, sequence: str, fasta_filename: str = "") -> dict:
         fc.pf()
         bppm = fc.bpp()  # 1-based, upper-triangular
 
-        # Centroid structure — try fc.centroid() first, fall back to bpp matrix
-        centroid_structure: str | None = None
-        try:
-            centroid_result = fc.centroid()
-            print(f"DEBUG centroid type={type(centroid_result)} repr={repr(centroid_result)[:80]}", flush=True)
-            raw = centroid_result[0] if isinstance(centroid_result, (tuple, list)) else centroid_result
-            if raw is not None:
-                candidate = ''.join(c for c in str(raw) if c in '().')
-                if len(candidate) == n:
-                    centroid_structure = candidate
-                else:
-                    print(f"DEBUG centroid length mismatch: got {len(candidate)}, expected {n}", flush=True)
-        except Exception as e:
-            print(f"DEBUG centroid exception: {e}", flush=True)
+        # Centroid — derive from base-pair probability matrix (primary method).
+        # fc.centroid() SWIG binding sometimes returns the MFE structure, so we
+        # compute directly from the bpp to guarantee independence.
+        centroid_structure = _centroid_from_bpp(bppm, n)
 
-        if centroid_structure is None:
-            # Fallback: derive centroid from bpp — include pair (i,j) if P(i,j) > 0.5
-            print("DEBUG using bpp fallback for centroid", flush=True)
-            centroid_structure = _centroid_from_bpp(bppm, n)
+        # If BPP centroid is all dots (no pair > 0.5) try fc.centroid() fallback
+        if set(centroid_structure) == {'.'}:
+            try:
+                centroid_result = fc.centroid()
+                raw = centroid_result[0] if isinstance(centroid_result, (tuple, list)) else centroid_result
+                if raw is not None:
+                    candidate = ''.join(c for c in str(raw) if c in '().')
+                    if len(candidate) == n and set(candidate) != {'.'}:
+                        centroid_structure = candidate
+            except Exception:
+                pass
 
-        # Per-nucleotide pairing probability
+        # Per-nucleotide pairing probability (used for colouring)
         pair_prob = [0.0] * (n + 1)
         for i in range(1, n + 1):
             for j in range(i + 1, n + 1):
@@ -181,19 +178,28 @@ def fold_sequence(seq_id: str, sequence: str, fasta_filename: str = "") -> dict:
                 pair_prob[j] += p
         pair_prob = [min(1.0, p) for p in pair_prob]
 
-        # HSB color annotations: blue (unpaired) → red (paired)
-        pre_annotations = ""
+        # ── MFE colour annotations ──
+        # Blue (hue 0.667, unpaired) → Red (hue 0, paired) by pair probability
+        mfe_annotations = ""
         for i in range(1, n + 1):
             hue = (1.0 - pair_prob[i]) * 0.667
-            pre_annotations += f"{hue:.4f} 0.9 0.9 sethsbcolor {i} cmark\n"
+            mfe_annotations += f"{hue:.4f} 0.9 0.9 sethsbcolor {i} cmark\n"
 
-        # MFE structure image
+        # ── Centroid colour annotations ──
+        # Green (hue 0.333, unpaired) → Orange (hue 0.083, paired) by pair
+        # probability.  Visually distinct from the MFE blue→red scheme.
+        centroid_annotations = ""
+        for i in range(1, n + 1):
+            hue = 0.333 - pair_prob[i] * 0.250
+            centroid_annotations += f"{hue:.4f} 0.85 0.9 sethsbcolor {i} cmark\n"
+
+        # ── MFE structure image (via ViennaRNA Python API) ──
         colored_img_bytes: bytes | None = None
         colored_img_error: str | None = None
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 ps_path = Path(tmp) / f"{sid}_mfe.ps"
-                RNA.PS_rna_plot_a(sequence, mfe_structure, str(ps_path), pre_annotations, "")
+                RNA.PS_rna_plot_a(sequence, mfe_structure, str(ps_path), mfe_annotations, "")
                 if ps_path.exists():
                     colored_img_bytes = ps_to_png_bytes(ps_path.read_bytes())
                 else:
@@ -201,14 +207,17 @@ def fold_sequence(seq_id: str, sequence: str, fasta_filename: str = "") -> dict:
         except Exception as e:
             colored_img_error = f"MFE image: {e}"
 
-        # Centroid structure image (same bpp coloring, different topology)
+        # ── Centroid structure image (via ViennaRNA Python API) ──
         centroid_img_bytes: bytes | None = None
         centroid_img_error: str | None = None
         if centroid_structure:
             try:
                 with tempfile.TemporaryDirectory() as tmp:
                     ps_path = Path(tmp) / f"{sid}_centroid.ps"
-                    RNA.PS_rna_plot_a(sequence, centroid_structure, str(ps_path), pre_annotations, "")
+                    RNA.PS_rna_plot_a(
+                        sequence, centroid_structure, str(ps_path),
+                        centroid_annotations, "",
+                    )
                     if ps_path.exists():
                         centroid_img_bytes = ps_to_png_bytes(ps_path.read_bytes())
                     else:
@@ -216,10 +225,11 @@ def fold_sequence(seq_id: str, sequence: str, fasta_filename: str = "") -> dict:
             except Exception as e:
                 centroid_img_error = f"Centroid image: {e}"
         else:
-            centroid_img_error = "No centroid structure returned"
+            centroid_img_error = "No centroid structure computed"
 
-        # Dot-plot via RNAfold -p subprocess (fc.plot_dp_PS absent in ViennaRNA 2.7)
+        # ── Dot-plot via RNAfold -p subprocess ──
         dp_img_bytes: bytes | None = None
+        dp_img_error: str | None = None
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             input_fa = tmp_path / f"{sid}.fa"
@@ -231,11 +241,22 @@ def fold_sequence(seq_id: str, sequence: str, fasta_filename: str = "") -> dict:
                     capture_output=True,
                     timeout=300,
                 )
+                # Robust file detection — try exact name, then glob
                 dp_ps = tmp_path / f"{sid}_dp.ps"
+                if not dp_ps.exists():
+                    candidates = sorted(tmp_path.glob("*_dp.ps"))
+                    if not candidates:
+                        candidates = sorted(tmp_path.glob("*dp*.ps"))
+                    if candidates:
+                        dp_ps = candidates[0]
                 if dp_ps.exists():
                     dp_img_bytes = ps_to_png_bytes(dp_ps.read_bytes())
-            except (FileNotFoundError, subprocess.TimeoutExpired):
-                pass
+                else:
+                    dp_img_error = "Dot-plot PS file not found"
+            except FileNotFoundError:
+                dp_img_error = "RNAfold command not found"
+            except subprocess.TimeoutExpired:
+                dp_img_error = "RNAfold -p timed out"
 
         return {
             "fasta_file": fasta_filename,
@@ -248,7 +269,7 @@ def fold_sequence(seq_id: str, sequence: str, fasta_filename: str = "") -> dict:
             "centroid_img_bytes": centroid_img_bytes,
             "dp_img_bytes": dp_img_bytes,
             "error": None,
-            "img_errors": [e for e in [colored_img_error, centroid_img_error] if e],
+            "img_errors": [e for e in [colored_img_error, centroid_img_error, dp_img_error] if e],
         }
 
     except Exception as exc:
