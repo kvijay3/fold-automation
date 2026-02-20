@@ -538,10 +538,10 @@ def web():
     async def predict(
         request: Request,
         files: list[UploadFile] = File(default=[]),
-        fasta_text: str = "",
-        gamma: float = 6.0,
-        engine: str = "BL",
-        bp_weight: float = 2.0,
+        fasta_text: str = Form(default=""),
+        gamma: float = Form(default=6.0),
+        engine: str = Form(default="BL"),
+        bp_weight: float = Form(default=2.0),
     ):
         """
         Predict RNA secondary structures.
