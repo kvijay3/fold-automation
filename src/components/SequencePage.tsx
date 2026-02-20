@@ -1,4 +1,5 @@
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import React from 'react';
+import { ChevronLeft, ChevronRight, Copy, Check } from 'lucide-react';
 import type { SequenceResult } from '../lib/types';
 
 interface SequencePageProps {
@@ -62,6 +63,15 @@ function MonoBlock({ label, value }: { label: string; value: string }) {
 export function SequencePage({ result, index, total, onPrev, onNext }: SequencePageProps) {
   const badge = inferBadge(result);
   const centroidError = result.img_errors?.find(e => e.startsWith('Centroid'));
+  const [copied, setCopied] = React.useState(false);
+
+  const fastaContent = `>${result.seq_id}\n${result.sequence}`;
+
+  const copyToClipboard = () => {
+    navigator.clipboard.writeText(fastaContent);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   return (
     <div className="flex flex-col gap-6 h-full">
@@ -112,9 +122,32 @@ export function SequencePage({ result, index, total, onPrev, onNext }: SequenceP
         {/* FASTA sequence */}
         {result.sequence && (
           <div className="flex flex-col gap-2">
-            <p className="font-display text-xs" style={{ color: 'var(--text-primary)', fontWeight: '300' }}>
-              RNA Sequence
-            </p>
+            <div className="flex items-center justify-between">
+              <p className="font-display text-xs" style={{ color: 'var(--text-primary)', fontWeight: '300' }}>
+                FASTA Sequence
+              </p>
+              <button
+                onClick={copyToClipboard}
+                className="flex items-center gap-2 px-3 py-1.5 transition-all duration-150"
+                style={{
+                  border: '1px solid var(--border)',
+                  background: 'transparent',
+                  color: 'var(--text-secondary)',
+                }}
+              >
+                {copied ? (
+                  <>
+                    <Check size={12} />
+                    <span className="text-xs">Copied</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy size={12} />
+                    <span className="text-xs">Copy</span>
+                  </>
+                )}
+              </button>
+            </div>
             <div
               className="text-xs px-4 py-4 overflow-auto"
               style={{
@@ -128,7 +161,7 @@ export function SequencePage({ result, index, total, onPrev, onNext }: SequenceP
                 whiteSpace: 'pre-wrap',
               }}
             >
-              {result.sequence}
+              {fastaContent}
             </div>
           </div>
         )}

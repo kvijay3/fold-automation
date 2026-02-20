@@ -4,15 +4,18 @@ import { Upload, X } from 'lucide-react';
 interface UploadZoneProps {
   files: File[];
   onFilesChange: (files: File[]) => void;
+  fastaText: string;
+  onFastaTextChange: (text: string) => void;
   onRun: () => void;
   loading: boolean;
 }
 
 const ACCEPTED = ['.fasta', '.fa', '.fna', '.ffn'];
 
-export function UploadZone({ files, onFilesChange, onRun, loading }: UploadZoneProps) {
+export function UploadZone({ files, onFilesChange, fastaText, onFastaTextChange, onRun, loading }: UploadZoneProps) {
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const [inputMode, setInputMode] = useState<'file' | 'text'>('file');
 
   const addFiles = useCallback(
     (incoming: FileList | File[]) => {
@@ -39,10 +42,40 @@ export function UploadZone({ files, onFilesChange, onRun, loading }: UploadZoneP
     onFilesChange(files.filter((_, idx) => idx !== i));
   };
 
+  const hasInput = files.length > 0 || fastaText.trim().length > 0;
+
   return (
     <div className="flex flex-col gap-3">
-      {/* Drop zone */}
-      <div
+      {/* Input mode toggle */}
+      <div className="flex gap-2">
+        <button
+          onClick={() => setInputMode('file')}
+          className="flex-1 py-2 text-xs font-display transition-all duration-150"
+          style={{
+            border: '1px solid var(--border)',
+            background: inputMode === 'file' ? 'var(--surface)' : 'transparent',
+            color: inputMode === 'file' ? 'var(--text-primary)' : 'var(--text-secondary)',
+          }}
+        >
+          File Upload
+        </button>
+        <button
+          onClick={() => setInputMode('text')}
+          className="flex-1 py-2 text-xs font-display transition-all duration-150"
+          style={{
+            border: '1px solid var(--border)',
+            background: inputMode === 'text' ? 'var(--surface)' : 'transparent',
+            color: inputMode === 'text' ? 'var(--text-primary)' : 'var(--text-secondary)',
+          }}
+        >
+          Text Input
+        </button>
+      </div>
+
+      {inputMode === 'file' ? (
+        <>
+          {/* Drop zone */}
+          <div
         onClick={() => inputRef.current?.click()}
         onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
         onDragLeave={() => setDragging(false)}
@@ -106,15 +139,32 @@ export function UploadZone({ files, onFilesChange, onRun, loading }: UploadZoneP
           ))}
         </div>
       )}
+        </>
+      ) : (
+        /* Text input */
+        <textarea
+          value={fastaText}
+          onChange={(e) => onFastaTextChange(e.target.value)}
+          placeholder="Paste FASTA sequence here...\n\n>sequence_name\nAUGCUAGCUAGC..."
+          className="w-full px-4 py-3 text-xs font-mono resize-none"
+          style={{
+            background: 'var(--surface)',
+            border: '1px solid var(--border)',
+            color: 'var(--text-primary)',
+            height: '200px',
+            lineHeight: 1.6,
+          }}
+        />
+      )}
 
       {/* Run button */}
       <button
         onClick={onRun}
-        disabled={files.length === 0 || loading}
+        disabled={!hasInput || loading}
         className="flex items-center justify-center gap-2 w-full font-display text-sm transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed"
         style={{
-          background: files.length > 0 && !loading ? 'var(--accent-red)' : 'var(--border)',
-          color: files.length > 0 && !loading ? '#FFFFFF' : 'var(--text-muted)',
+          background: hasInput && !loading ? 'var(--accent-red)' : 'var(--border)',
+          color: hasInput && !loading ? '#FFFFFF' : 'var(--text-muted)',
           height: '40px',
         }}
       >

@@ -38,20 +38,23 @@ function downloadTSV(results: SequenceResult[]) {
 
 export default function App() {
   const [files, setFiles]               = useState<File[]>([]);
+  const [fastaText, setFastaText]       = useState('');
   const [results, setResults]           = useState<SequenceResult[]>([]);
   const [loading, setLoading]           = useState(false);
   const [error, setError]               = useState<string | null>(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [gamma, setGamma]               = useState(6.0);
+  const [engine, setEngine]             = useState('BL');
+  const [bpWeight, setBpWeight]         = useState(2.0);
 
   const handleRun = async () => {
-    if (!files.length) return;
+    if (!files.length && !fastaText.trim()) return;
     setLoading(true);
     setError(null);
     setResults([]);
     setSelectedIndex(0);
     try {
-      const data = await predictStructures(files, gamma);
+      const data = await predictStructures(files, fastaText, gamma, engine, bpWeight);
       setResults(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -125,20 +128,30 @@ export default function App() {
             <UploadZone
               files={files}
               onFilesChange={setFiles}
+              fastaText={fastaText}
+              onFastaTextChange={setFastaText}
               onRun={handleRun}
               loading={loading}
             />
           </div>
 
-          {/* Gamma parameter */}
+          {/* CentroidFold Parameters */}
           <div className="flex flex-col gap-3">
             <p
               className="font-display text-xs"
               style={{ color: 'var(--text-secondary)', letterSpacing: '1px' }}
             >
-              GAMMA PARAMETER
+              CENTROID PARAMETERS
             </p>
-            <div className="flex items-center gap-3">
+            
+            {/* Gamma */}
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Gamma</span>
+                <span className="font-display text-xs" style={{ color: 'var(--text-primary)' }}>
+                  {gamma.toFixed(1)}
+                </span>
+              </div>
               <input
                 type="range"
                 min="1"
@@ -146,21 +159,49 @@ export default function App() {
                 step="0.5"
                 value={gamma}
                 onChange={(e) => setGamma(parseFloat(e.target.value))}
-                className="flex-1"
-                style={{
-                  accentColor: 'var(--accent-red)',
-                }}
+                className="w-full"
+                style={{ accentColor: 'var(--accent-red)' }}
               />
-              <span
-                className="font-display text-sm"
-                style={{ color: 'var(--text-primary)' }}
-              >
-                {gamma.toFixed(1)}
-              </span>
             </div>
-            <p className="text-xs" style={{ color: 'var(--text-secondary)', lineHeight: 1.4 }}>
-              Higher values favor more base pairs
-            </p>
+
+            {/* Inference Engine */}
+            <div className="flex flex-col gap-2">
+              <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Inference Engine</span>
+              <select
+                value={engine}
+                onChange={(e) => setEngine(e.target.value)}
+                className="w-full px-3 py-2 text-xs"
+                style={{
+                  background: 'var(--surface)',
+                  border: '1px solid var(--border)',
+                  color: 'var(--text-primary)',
+                }}
+              >
+                <option value="BL">McCaskill (BL)</option>
+                <option value="CONTRAfold">CONTRAfold</option>
+                <option value="RNAfold">RNAfold</option>
+              </select>
+            </div>
+
+            {/* Base Pair Weight */}
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Base Pair Weight</span>
+                <span className="font-display text-xs" style={{ color: 'var(--text-primary)' }}>
+                  {bpWeight.toFixed(1)}
+                </span>
+              </div>
+              <input
+                type="range"
+                min="1"
+                max="4"
+                step="0.1"
+                value={bpWeight}
+                onChange={(e) => setBpWeight(parseFloat(e.target.value))}
+                className="w-full"
+                style={{ accentColor: 'var(--accent-red)' }}
+              />
+            </div>
           </div>
 
           {/* Color legend */}

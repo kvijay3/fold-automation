@@ -132,7 +132,7 @@ def ps_to_png_bytes(ps_content: bytes) -> tuple[bytes | None, str | None]:
 # CentroidFold C++ binary wrapper
 # ---------------------------------------------------------------------------
 
-def _run_centroidfold(sequence: str, gamma: float = 6.0) -> str:
+def _run_centroidfold(sequence: str, gamma: float = 6.0, engine: str = "BL", bp_weight: float = 2.0) -> str:
     """
     Run CentroidFold C++ binary to compute centroid structure.
     
@@ -142,6 +142,8 @@ def _run_centroidfold(sequence: str, gamma: float = 6.0) -> str:
     Args:
         sequence: RNA sequence
         gamma: Gamma parameter for centroid calculation (default 6.0)
+        engine: Inference engine - "BL" (McCaskill), "CONTRAfold", "RNAfold" (default "BL")
+        bp_weight: Weight of base pairs (default 2.0)
         
     Returns:
         Centroid structure in dot-bracket notation
@@ -154,9 +156,25 @@ def _run_centroidfold(sequence: str, gamma: float = 6.0) -> str:
         input_fa = tmp_path / "input.fa"
         input_fa.write_text(f">seq\n{sequence}\n")
         
+        # Build command with parameters
+        cmd = ["centroid_fold", "-g", str(gamma)]
+        
+        # Add engine parameter
+        if engine == "CONTRAfold":
+            cmd.extend(["--engine", "CONTRAfold"])
+        elif engine == "RNAfold":
+            cmd.extend(["--engine", "RNAfold"])
+        # BL (McCaskill) is default, no flag needed
+        
+        # Add base pair weight if not default
+        if bp_weight != 2.0:
+            cmd.extend(["--bp-weight", str(bp_weight)])
+        
+        cmd.append(str(input_fa))
+        
         try:
             result = subprocess.run(
-                ["centroid_fold", "-g", str(gamma), str(input_fa)],
+                cmd,
                 cwd=str(tmp_path),
                 capture_output=True,
                 text=True,
@@ -283,7 +301,7 @@ def _gamma_centroid_python(bppm, n: int, gamma: float = 1.0) -> str:
 # Fold one sequence
 # ---------------------------------------------------------------------------
 
-def fold_sequence(seq_id: str, sequence: str, fasta_filename: str = "", gamma: float = 1.0) -> dict:
+def fold_sequence(seq_id: str, sequence: str, fasta_filename: str = "", gamma: float = 1.0, engine: str = "BL", bp_weight: float = 2.0) -> dict:
     try:
         import RNA
     except ImportError:
@@ -306,7 +324,7 @@ def fold_sequence(seq_id: str, sequence: str, fasta_filename: str = "", gamma: f
         # Centroid — use CentroidFold C++ binary (matches CentroidFold web server)
         # gamma=6.0 is the default used by CentroidFold web server
         try:
-            centroid_structure = _run_centroidfold(sequence, gamma=gamma)
+            centroid_structure = _run_centroidfold(sequence, gamma=gamma, engine=engine, bp_weight=bp_weight)
         except RuntimeError as e:
             # Fallback to Python implementation if C++ binary fails
             centroid_structure = _gamma_centroid_python(bppm, n, gamma=gamma)
@@ -489,7 +507,7 @@ def web():
                     fc.pf()
                     bppm = fc.bpp()
                     try:
-                        centroid_structure = _run_centroidfold(sequence, gamma=1.0)
+                        centroid_structure = _run_centroidfold(sequence, gamma=1.0, engine="BL", bp_weight=2.0)
                     except RuntimeError:
                         centroid_structure = _gamma_centroid_python(bppm, n, gamma=1.0)
                     centroid_is_dots = set(centroid_structure) == {'.'}
@@ -517,19 +535,49 @@ def web():
         return results
 
     @api.post("/predict")
-    async def predict(request: Request, files: list[UploadFile] = File(...), gamma: float = 6.0):
+    async def predict(
+        request: Request,
+        files: list[UploadFile] = File(default=[]),
+        fasta_text: str = "",
+        gamma: float = 6.0,
+        engine: str = "BL",
+        bp_weight: float = 2.0,
+    ):
         """
         Predict RNA secondary structures.
         
         Args:
-            files: FASTA files to process
+            files: FASTA files to process (optional)
+            fasta_text: Direct FASTA text input (optional)
             gamma: Gamma parameter for centroid structure (default 6.0, range 1-10)
                    Higher values favor more base pairs. CentroidFold web server uses 6.0.
+            engine: Inference engine - "BL" (McCaskill), "CONTRAfold", "RNAfold" (default "BL")
+            bp_weight: Weight of base pairs (default 2.0)
         """
-        if not files:
-            raise HTTPException(status_code=400, detail="No files uploaded")
+        if not files and not fasta_text:
+            raise HTTPException(status_code=400, detail="No files or FASTA text provided")
 
         results = []
+        
+        # Process direct FASTA text input
+        if fasta_text:
+            seqs = parse_fasta(fasta_text)
+            if not seqs:
+                results.append(_api_error("text_input", "No sequences found in FASTA text"))
+            else:
+                for seq_id, sequence in seqs:
+                    r = fold_sequence(seq_id, sequence, "text_input", gamma=gamma, engine=engine, bp_weight=bp_weight)
+                    
+                    colored_bytes  = r.pop("colored_img_bytes", None)
+                    centroid_bytes = r.pop("centroid_img_bytes", None)
+                    dp_bytes       = r.pop("dp_img_bytes", None)
+
+                    r["colored_img_url"]  = make_url(request, save_image(colored_bytes))  if colored_bytes  else None
+                    r["centroid_img_url"] = make_url(request, save_image(centroid_bytes)) if centroid_bytes else None
+                    r["dp_img_url"]       = make_url(request, save_image(dp_bytes))       if dp_bytes       else None
+                    results.append(r)
+        
+        # Process uploaded files
         for upload in files:
             try:
                 content = (await upload.read()).decode("utf-8", errors="replace")
@@ -543,7 +591,7 @@ def web():
                 continue
 
             for seq_id, sequence in seqs:
-                r = fold_sequence(seq_id, sequence, upload.filename, gamma=gamma)
+                r = fold_sequence(seq_id, sequence, upload.filename, gamma=gamma, engine=engine, bp_weight=bp_weight)
 
                 colored_bytes  = r.pop("colored_img_bytes", None)
                 centroid_bytes = r.pop("centroid_img_bytes", None)
