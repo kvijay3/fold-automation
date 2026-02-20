@@ -455,7 +455,7 @@ def _fold_error(fasta_file: str, seq_id: str, sequence: str, msg: str) -> dict:
 @app.function(timeout=600, volumes={IMAGES_DIR: images_vol})
 @modal.asgi_app()
 def web():
-    from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+    from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import Response
 
