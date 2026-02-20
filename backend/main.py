@@ -71,7 +71,8 @@ def safe_filename(seq_id: str) -> str:
 # PS → PNG bytes via Ghostscript
 # ---------------------------------------------------------------------------
 
-def ps_to_png_bytes(ps_content: bytes) -> bytes | None:
+def ps_to_png_bytes(ps_content: bytes) -> tuple[bytes | None, str | None]:
+    """Convert PS/EPS bytes to PNG bytes. Returns (png_bytes, error_msg)."""
     with tempfile.TemporaryDirectory() as tmp:
         ps_path = Path(tmp) / "input.ps"
         png_path = Path(tmp) / "output.png"
@@ -81,6 +82,7 @@ def ps_to_png_bytes(ps_content: bytes) -> bytes | None:
                 [
                     "gs", "-dBATCH", "-dNOPAUSE", "-dQUIET",
                     "-sDEVICE=png16m", "-r150",
+                    "-sPAPERSIZE=a2",        # large page avoids cropping
                     f"-sOutputFile={png_path}",
                     str(ps_path),
                 ],
@@ -88,10 +90,13 @@ def ps_to_png_bytes(ps_content: bytes) -> bytes | None:
                 timeout=60,
             )
             if result.returncode == 0 and png_path.exists():
-                return png_path.read_bytes()
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            pass
-    return None
+                return png_path.read_bytes(), None
+            stderr = result.stderr.decode("utf-8", errors="replace")[:300]
+            return None, f"GS rc={result.returncode}: {stderr}"
+        except FileNotFoundError:
+            return None, "Ghostscript (gs) not found"
+        except subprocess.TimeoutExpired:
+            return None, "Ghostscript timed out"
 
 
 # ---------------------------------------------------------------------------
@@ -199,33 +204,41 @@ def fold_sequence(seq_id: str, sequence: str, fasta_filename: str = "") -> dict:
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 ps_path = Path(tmp) / f"{sid}_mfe.ps"
-                RNA.PS_rna_plot_a(sequence, mfe_structure, str(ps_path), mfe_annotations, "")
-                if ps_path.exists():
-                    colored_img_bytes = ps_to_png_bytes(ps_path.read_bytes())
+                ret = RNA.PS_rna_plot_a(sequence, mfe_structure, str(ps_path), mfe_annotations, "")
+                if ps_path.exists() and ps_path.stat().st_size > 0:
+                    colored_img_bytes, gs_err = ps_to_png_bytes(ps_path.read_bytes())
+                    if gs_err:
+                        colored_img_error = f"MFE GS: {gs_err}"
                 else:
-                    colored_img_error = "PS_rna_plot_a did not write MFE ps file"
+                    colored_img_error = f"PS_rna_plot_a returned {ret}, no MFE ps file"
         except Exception as e:
             colored_img_error = f"MFE image: {e}"
 
         # ── Centroid structure image (via ViennaRNA Python API) ──
+        #
+        # Use a fresh fold_compound so the internal coordinates are
+        # recalculated for the centroid structure (PS_rna_plot_a caches
+        # layout coords from the previous call).
         centroid_img_bytes: bytes | None = None
         centroid_img_error: str | None = None
-        if centroid_structure:
+        if centroid_structure and set(centroid_structure) != {'.'}:
             try:
                 with tempfile.TemporaryDirectory() as tmp:
                     ps_path = Path(tmp) / f"{sid}_centroid.ps"
-                    RNA.PS_rna_plot_a(
+                    ret = RNA.PS_rna_plot_a(
                         sequence, centroid_structure, str(ps_path),
                         centroid_annotations, "",
                     )
-                    if ps_path.exists():
-                        centroid_img_bytes = ps_to_png_bytes(ps_path.read_bytes())
+                    if ps_path.exists() and ps_path.stat().st_size > 0:
+                        centroid_img_bytes, gs_err = ps_to_png_bytes(ps_path.read_bytes())
+                        if gs_err:
+                            centroid_img_error = f"Centroid GS: {gs_err}"
                     else:
-                        centroid_img_error = "PS_rna_plot_a did not write centroid ps file"
+                        centroid_img_error = f"PS_rna_plot_a returned {ret}, no centroid ps file"
             except Exception as e:
                 centroid_img_error = f"Centroid image: {e}"
         else:
-            centroid_img_error = "No centroid structure computed"
+            centroid_img_error = "No centroid structure computed (all dots)"
 
         # ── Dot-plot via ViennaRNA Python API ──
         dp_img_bytes: bytes | None = None
@@ -233,11 +246,12 @@ def fold_sequence(seq_id: str, sequence: str, fasta_filename: str = "") -> dict:
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 dp_ps = Path(tmp) / f"{sid}_dp.ps"
-                # pf_fold (free function) stores bpp internally for PS_dot_plot
                 RNA.pf_fold(sequence)
                 RNA.PS_dot_plot(sequence, str(dp_ps))
-                if dp_ps.exists():
-                    dp_img_bytes = ps_to_png_bytes(dp_ps.read_bytes())
+                if dp_ps.exists() and dp_ps.stat().st_size > 0:
+                    dp_img_bytes, gs_err = ps_to_png_bytes(dp_ps.read_bytes())
+                    if gs_err:
+                        dp_img_error = f"Dot-plot GS: {gs_err}"
                 else:
                     dp_img_error = "Dot-plot PS file not generated"
         except Exception as e:
@@ -319,6 +333,48 @@ def web():
         if not path.exists():
             raise HTTPException(status_code=404, detail="Image not found")
         return Response(content=path.read_bytes(), media_type="image/png")
+
+    @api.post("/debug-fold")
+    async def debug_fold(request: Request, files: list[UploadFile] = File(...)):
+        """Return raw fold results with detailed diagnostics (no images)."""
+        results = []
+        for upload in files:
+            content = (await upload.read()).decode("utf-8", errors="replace")
+            seqs = parse_fasta(content)
+            for seq_id, sequence in seqs[:1]:  # first sequence only
+                try:
+                    import RNA
+                    n = len(sequence)
+                    fc = RNA.fold_compound(sequence)
+                    (mfe_structure, mfe) = fc.mfe()
+                    mfe_structure = ''.join(c for c in str(mfe_structure) if c in '().')
+                    fc.exp_params_rescale(mfe)
+                    fc.pf()
+                    bppm = fc.bpp()
+                    centroid_structure = _centroid_from_bpp(bppm, n)
+                    centroid_is_dots = set(centroid_structure) == {'.'}
+
+                    fc_centroid_raw = None
+                    try:
+                        cr = fc.centroid()
+                        fc_centroid_raw = str(cr[0]) if isinstance(cr, (tuple, list)) else str(cr)
+                    except Exception as e:
+                        fc_centroid_raw = f"ERROR: {e}"
+
+                    results.append({
+                        "seq_id": seq_id,
+                        "length": n,
+                        "mfe": round(float(mfe), 2),
+                        "mfe_structure_len": len(mfe_structure),
+                        "centroid_structure_len": len(centroid_structure),
+                        "centroid_is_all_dots": centroid_is_dots,
+                        "centroid_preview": centroid_structure[:80],
+                        "fc_centroid_raw": fc_centroid_raw,
+                        "mfe_structure_preview": mfe_structure[:80],
+                    })
+                except Exception as e:
+                    results.append({"seq_id": seq_id, "error": str(e)})
+        return results
 
     @api.post("/predict")
     async def predict(request: Request, files: list[UploadFile] = File(...)):
