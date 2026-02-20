@@ -1,19 +1,18 @@
-@import url("https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Roboto:wght@100;300;400;500&family=Inter:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap");
 @import "tailwindcss";
 
 /* ─── Design Tokens ─────────────────────────────────────── */
 :root {
-  --bg:           #050810;
-  --surface:      #0C1221;
-  --border:       #1A2540;
-  --border-glow:  #22D3EE30;
-  --text-primary: #E8F0FE;
-  --text-muted:   #5B7BA6;
-  --accent-cyan:  #22D3EE;
-  --accent-amber: #F59E0B;
-  --high-tia:     #F43F5E;
-  --low-tia:      #34D399;
-  --scan-line:    rgba(255,255,255,0.015);
+  --bg:           #FFFFFF;
+  --surface:      #FAFAFA;
+  --border:       #E8E8E8;
+  --text-primary: #0D0D0D;
+  --text-secondary: #7A7A7A;
+  --text-muted:   #B0B0B0;
+  --text-placeholder: #D0D0D0;
+  --accent-red:   #E42313;
+  --success:      #22C55E;
+  --warning:      #F59E0B;
 }
 
 /* ─── Base ──────────────────────────────────────────────── */
@@ -26,23 +25,16 @@ html, body, #root {
 }
 
 body {
-  font-family: 'Figtree', sans-serif;
+  font-family: 'Inter', sans-serif;
   background-color: var(--bg);
   color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
-  /* CRT scan-line overlay */
-  background-image: repeating-linear-gradient(
-    to bottom,
-    transparent,
-    transparent 4px,
-    var(--scan-line) 4px,
-    var(--scan-line) 6px
-  );
+  -moz-osx-font-smoothing: grayscale;
 }
 
 /* ─── Utility classes ──────────────────────────────────── */
-.font-display { font-family: 'Bebas Neue', sans-serif; }
-.font-body    { font-family: 'Figtree', sans-serif; }
+.font-display { font-family: 'Roboto', sans-serif; font-weight: 300; }
+.font-body    { font-family: 'Inter', sans-serif; }
 .font-mono    { font-family: 'JetBrains Mono', monospace; }
 
 /* ─── Animations ────────────────────────────────────────── */

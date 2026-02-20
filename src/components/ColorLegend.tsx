@@ -1,26 +1,50 @@
 export function ColorLegend() {
   return (
-    <div className="px-3 py-3">
-      <p
-        className="font-display text-xs tracking-widest mb-2"
-        style={{ color: 'var(--text-muted)' }}
-      >
-        BASE-PAIR CONFIDENCE
-      </p>
-      <div
-        className="h-3 w-full rounded-full"
-        style={{
-          background:
-            'linear-gradient(to right, #2563EB, #06B6D4, #10B981, #FBBF24, #EF4444)',
-        }}
-      />
-      <div className="flex justify-between mt-1">
-        <span className="text-xs" style={{ color: 'var(--text-muted)', fontFamily: 'Figtree, sans-serif' }}>
-          Unpaired
-        </span>
-        <span className="text-xs" style={{ color: 'var(--text-muted)', fontFamily: 'Figtree, sans-serif' }}>
-          Paired
-        </span>
+    <div className="flex flex-col gap-3">
+      {/* MFE Structure */}
+      <div className="flex flex-col gap-1.5">
+        <p className="font-display text-xs" style={{ color: 'var(--text-primary)', fontWeight: '300' }}>
+          MFE Structure
+        </p>
+        <div
+          style={{
+            height: '20px',
+            width: '100%',
+            background: 'linear-gradient(to right, #4A90E2, #E42313)',
+            border: '1px solid var(--border)',
+          }}
+        />
+        <div className="flex justify-between">
+          <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+            Unpaired
+          </span>
+          <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+            Paired
+          </span>
+        </div>
+      </div>
+
+      {/* Centroid Structure */}
+      <div className="flex flex-col gap-1.5">
+        <p className="font-display text-xs" style={{ color: 'var(--text-primary)', fontWeight: '300' }}>
+          Centroid Structure
+        </p>
+        <div
+          style={{
+            height: '20px',
+            width: '100%',
+            background: 'linear-gradient(to right, #22C55E, #F59E0B)',
+            border: '1px solid var(--border)',
+          }}
+        />
+        <div className="flex justify-between">
+          <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+            Unpaired
+          </span>
+          <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+            Paired
+          </span>
+        </div>
       </div>
     </div>
   );

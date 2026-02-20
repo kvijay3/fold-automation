@@ -4,7 +4,7 @@ import { ColorLegend } from './components/ColorLegend';
 import { SequencePage } from './components/SequencePage';
 import { predictStructures } from './lib/api';
 import type { SequenceResult } from './lib/types';
-import { Download, Layers } from 'lucide-react';
+import { Download } from 'lucide-react';
 
 function toTSV(results: SequenceResult[]): string {
   const header = [
@@ -42,6 +42,7 @@ export default function App() {
   const [loading, setLoading]           = useState(false);
   const [error, setError]               = useState<string | null>(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [gamma, setGamma]               = useState(6.0);
 
   const handleRun = async () => {
     if (!files.length) return;
@@ -50,7 +51,7 @@ export default function App() {
     setResults([]);
     setSelectedIndex(0);
     try {
-      const data = await predictStructures(files);
+      const data = await predictStructures(files, gamma);
       setResults(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -86,197 +87,231 @@ export default function App() {
     <div className="flex h-screen overflow-hidden" style={{ background: 'var(--bg)' }}>
       {/* Sidebar */}
       <aside
-        className="flex flex-col gap-0 flex-shrink-0 animate-slide-in-left overflow-y-auto"
+        className="flex flex-col flex-shrink-0 overflow-y-auto"
         style={{
-          width: 260,
-          background: '#080D1A',
+          width: 280,
+          background: 'var(--bg)',
           borderRight: '1px solid var(--border)',
+          padding: '40px 24px',
+          justifyContent: 'space-between',
         }}
       >
-        {/* Logo */}
-        <div
-          className="flex items-center gap-2 px-4 py-4"
-          style={{ borderBottom: '1px solid var(--border)' }}
-        >
-          <span style={{ color: 'var(--accent-cyan)', fontSize: 18 }}>&#9672;</span>
-          <span
-            className="font-display tracking-widest text-sm"
-            style={{ color: 'var(--accent-cyan)' }}
-          >
-            FOLD AUTOMATION
-          </span>
-        </div>
+        <div className="flex flex-col gap-8">
+          {/* Logo */}
+          <div className="flex flex-col gap-3">
+            <div
+              style={{
+                width: 32,
+                height: 32,
+                background: 'var(--accent-red)',
+              }}
+            />
+            <span
+              className="font-display text-lg"
+              style={{ color: 'var(--text-primary)', letterSpacing: '0.5px' }}
+            >
+              RNA FOLD
+            </span>
+          </div>
 
-        {/* Upload */}
-        <div className="py-4" style={{ borderBottom: '1px solid var(--border)' }}>
-          <p
-            className="font-display text-xs tracking-widest px-3 mb-3"
-            style={{ color: 'var(--text-muted)' }}
-          >
-            INPUT
-          </p>
-          <UploadZone
-            files={files}
-            onFilesChange={setFiles}
-            onRun={handleRun}
-            loading={loading}
-          />
-        </div>
+          {/* Upload */}
+          <div className="flex flex-col gap-3">
+            <p
+              className="font-display text-xs"
+              style={{ color: 'var(--text-secondary)', letterSpacing: '1px' }}
+            >
+              UPLOAD FILES
+            </p>
+            <UploadZone
+              files={files}
+              onFilesChange={setFiles}
+              onRun={handleRun}
+              loading={loading}
+            />
+          </div>
 
-        {/* Color legend */}
-        <div className="py-4" style={{ borderBottom: '1px solid var(--border)' }}>
-          <p
-            className="font-display text-xs tracking-widest px-3 mb-1"
-            style={{ color: 'var(--text-muted)' }}
-          >
-            LEGEND
-          </p>
-          <ColorLegend />
-        </div>
-
-        {/* Sequence list */}
-        {hasResults && (
-          <div className="flex flex-col py-2" style={{ borderBottom: '1px solid var(--border)' }}>
-            <div className="flex items-center justify-between px-3 py-2">
-              <div className="flex items-center gap-2">
-                <Layers size={12} style={{ color: 'var(--text-muted)' }} />
-                <span
-                  className="font-display text-xs tracking-widest"
-                  style={{ color: 'var(--text-muted)' }}
-                >
-                  SEQUENCES
-                </span>
-              </div>
+          {/* Gamma parameter */}
+          <div className="flex flex-col gap-3">
+            <p
+              className="font-display text-xs"
+              style={{ color: 'var(--text-secondary)', letterSpacing: '1px' }}
+            >
+              GAMMA PARAMETER
+            </p>
+            <div className="flex items-center gap-3">
+              <input
+                type="range"
+                min="1"
+                max="10"
+                step="0.5"
+                value={gamma}
+                onChange={(e) => setGamma(parseFloat(e.target.value))}
+                className="flex-1"
+                style={{
+                  accentColor: 'var(--accent-red)',
+                }}
+              />
               <span
-                className="text-xs"
-                style={{ color: 'var(--accent-cyan)', fontFamily: 'Figtree, sans-serif' }}
+                className="font-display text-sm"
+                style={{ color: 'var(--text-primary)' }}
               >
-                {results.length}
+                {gamma.toFixed(1)}
               </span>
             </div>
-            <div className="flex flex-col max-h-[40vh] overflow-y-auto">
-              {results.map((r, i) => {
-                const isActive = i === selectedIndex;
-                return (
-                  <button
-                    key={`${r.fasta_file}-${r.seq_id}-${i}`}
-                    onClick={() => setSelectedIndex(i)}
-                    className="flex items-center gap-2 px-3 py-2 text-left transition-colors duration-100"
-                    style={{
-                      background: isActive ? 'rgba(34,211,238,0.08)' : 'transparent',
-                      borderLeft: isActive ? '2px solid var(--accent-cyan)' : '2px solid transparent',
-                      color: isActive ? 'var(--text-primary)' : 'var(--text-muted)',
-                    }}
-                  >
-                    <span
-                      className="text-xs truncate flex-1"
-                      style={{ fontFamily: 'Figtree, sans-serif' }}
-                      title={r.seq_id}
-                    >
-                      {r.seq_id}
-                    </span>
-                    {r.mfe !== null && (
-                      <span
-                        className="text-xs flex-shrink-0"
-                        style={{ color: 'var(--accent-amber)', fontFamily: 'JetBrains Mono, monospace', fontSize: 10 }}
-                      >
-                        {r.mfe}
-                      </span>
-                    )}
-                    {r.error && (
-                      <span
-                        className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                        style={{ background: 'var(--high-tia)' }}
-                      />
-                    )}
-                  </button>
-                );
-              })}
-            </div>
+            <p className="text-xs" style={{ color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+              Higher values favor more base pairs
+            </p>
           </div>
-        )}
 
-        {/* Download TSV */}
-        {hasResults && (
-          <div className="px-3 py-3">
-            <button
-              onClick={() => downloadTSV(results)}
-              className="flex items-center justify-center gap-2 w-full px-3 py-2 rounded-lg text-xs transition-all duration-200"
-              style={{
-                border: '1px solid var(--border)',
-                color: 'var(--text-muted)',
-                background: 'transparent',
-                fontFamily: 'Figtree, sans-serif',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.borderColor = 'var(--accent-cyan)';
-                e.currentTarget.style.color = 'var(--accent-cyan)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.borderColor = 'var(--border)';
-                e.currentTarget.style.color = 'var(--text-muted)';
-              }}
+          {/* Color legend */}
+          <div className="flex flex-col gap-3">
+            <p
+              className="font-display text-xs"
+              style={{ color: 'var(--text-secondary)', letterSpacing: '1px' }}
             >
-              <Download size={12} />
-              Download TSV
-            </button>
+              COLOR LEGEND
+            </p>
+            <ColorLegend />
           </div>
-        )}
 
-        <div className="flex-1" />
+          {/* Sequence list */}
+          {hasResults && (
+            <div className="flex flex-col gap-2">
+              <p
+                className="font-display text-xs"
+                style={{ color: 'var(--text-secondary)', letterSpacing: '1px' }}
+              >
+                SEQUENCES
+              </p>
+              <div className="flex flex-col gap-2 max-h-[40vh] overflow-y-auto">
+                {results.map((r, i) => {
+                  const isActive = i === selectedIndex;
+                  return (
+                    <button
+                      key={`${r.fasta_file}-${r.seq_id}-${i}`}
+                      onClick={() => setSelectedIndex(i)}
+                      className="flex items-center gap-2 px-3 py-2 text-left transition-all duration-150"
+                      style={{
+                        background: isActive ? 'var(--surface)' : 'transparent',
+                        borderLeft: isActive ? '2px solid var(--accent-red)' : '2px solid var(--border)',
+                        color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)',
+                      }}
+                    >
+                      <span
+                        className="text-xs truncate flex-1"
+                        title={r.seq_id}
+                      >
+                        {r.seq_id}
+                      </span>
+                      {r.mfe !== null && (
+                        <span
+                          className="font-display text-xs flex-shrink-0"
+                          style={{ color: isActive ? 'var(--accent-red)' : 'var(--text-secondary)' }}
+                        >
+                          {r.mfe}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+        </div>
+
+        {/* Footer */}
+        <div className="flex flex-col gap-2">
+          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+            ViennaRNA + CentroidFold
+          </p>
+        </div>
       </aside>
 
       {/* Main */}
-      <main className="flex-1 overflow-hidden p-6 flex flex-col">
+      <main className="flex-1 overflow-hidden flex flex-col" style={{ padding: '48px' }}>
         {/* Global error */}
         {error && (
           <div
-            className="mb-4 px-4 py-3 rounded-lg text-sm flex-shrink-0"
+            className="mb-6 px-4 py-3 text-sm flex-shrink-0"
             style={{
-              background: 'rgba(244,63,94,0.1)',
-              border: '1px solid rgba(244,63,94,0.3)',
-              color: 'var(--high-tia)',
-              fontFamily: 'Figtree, sans-serif',
+              background: 'rgba(228,35,19,0.05)',
+              border: '1px solid var(--accent-red)',
+              color: 'var(--accent-red)',
             }}
           >
             {error}
           </div>
         )}
 
-        {/* Summary bar */}
+        {/* Header */}
+        <div className="flex items-end justify-between mb-12 flex-shrink-0">
+          <div className="flex flex-col gap-2">
+            <h1
+              className="font-display"
+              style={{
+                fontSize: '40px',
+                fontWeight: '300',
+                color: 'var(--text-primary)',
+                letterSpacing: '-1px',
+              }}
+            >
+              RNA Structure Prediction
+            </h1>
+            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+              Analyze secondary structures using MFE and centroid algorithms
+            </p>
+          </div>
+          {hasResults && (
+            <button
+              onClick={() => downloadTSV(results)}
+              className="flex items-center gap-2 px-4 py-2 transition-all duration-150"
+              style={{
+                border: '1px solid var(--border)',
+                color: 'var(--text-primary)',
+                background: 'transparent',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = 'var(--accent-red)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = 'var(--border)';
+              }}
+            >
+              <Download size={14} />
+              <span className="font-display text-xs">Export TSV</span>
+            </button>
+          )}
+        </div>
+
+        {/* Metrics */}
         {hasResults && (
-          <div
-            className="flex items-stretch rounded-xl overflow-hidden animate-fade-down mb-4 flex-shrink-0"
-            style={{ border: '1px solid var(--border)', background: 'var(--surface)' }}
-          >
+          <div className="flex gap-6 mb-12 flex-shrink-0">
             {[
-              { label: 'SEQUENCES', value: String(results.length) },
-              { label: 'FILES',     value: String(fileNames.length) },
-              {
-                label: 'MIN MFE',
-                value: mfes.length ? `${Math.min(...mfes)} kcal/mol` : '\u2014',
-              },
-              {
-                label: 'MAX MFE',
-                value: mfes.length ? `${Math.max(...mfes)} kcal/mol` : '\u2014',
-              },
-            ].map(({ label, value }, i, arr) => (
+              { label: 'Sequences', value: String(results.length) },
+              { label: 'Files Processed', value: String(fileNames.length) },
+              { label: 'Min MFE', value: mfes.length ? `${Math.min(...mfes)}` : '—' },
+              { label: 'Max MFE', value: mfes.length ? `${Math.max(...mfes)}` : '—' },
+            ].map(({ label, value }) => (
               <div
                 key={label}
-                className="flex-1 flex flex-col items-center justify-center py-3 px-3"
+                className="flex-1 flex flex-col gap-2"
                 style={{
-                  borderRight: i < arr.length - 1 ? '1px solid var(--border)' : 'none',
+                  border: '1px solid var(--border)',
+                  padding: '28px',
                 }}
               >
-                <span
-                  className="text-xs tracking-widest"
-                  style={{ color: 'var(--text-muted)', fontFamily: 'Figtree, sans-serif' }}
-                >
+                <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
                   {label}
                 </span>
                 <span
-                  className="font-display text-lg leading-tight mt-0.5"
-                  style={{ color: 'var(--accent-cyan)' }}
+                  className="font-display"
+                  style={{
+                    fontSize: '36px',
+                    fontWeight: '100',
+                    color: 'var(--text-primary)',
+                    letterSpacing: '-1px',
+                  }}
                 >
                   {value}
                 </span>
@@ -287,18 +322,23 @@ export default function App() {
 
         {/* Loading */}
         {loading && (
-          <div className="flex-1 flex flex-col items-center justify-center gap-4">
+          <div className="flex-1 flex flex-col items-center justify-center gap-6">
             <div
-              className="text-6xl animate-pulse-slow"
-              style={{ color: 'var(--accent-cyan)', opacity: 0.6 }}
+              className="animate-pulse-slow"
+              style={{
+                width: 80,
+                height: 80,
+                background: 'var(--surface)',
+                border: '1px solid var(--border)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
             >
-              &#9672;
+              <span style={{ fontSize: '32px', color: 'var(--text-placeholder)' }}>↑</span>
             </div>
-            <p
-              className="text-sm animate-fade-down"
-              style={{ color: 'var(--text-muted)', fontFamily: 'Figtree, sans-serif' }}
-            >
-              Processing {files.length} file{files.length !== 1 ? 's' : ''}&hellip;
+            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+              Processing {files.length} file{files.length !== 1 ? 's' : ''}...
             </p>
           </div>
         )}
@@ -316,25 +356,30 @@ export default function App() {
 
         {/* Empty state */}
         {!loading && !hasResults && !error && (
-          <div className="flex flex-col items-center justify-center h-full gap-6 select-none">
+          <div className="flex flex-col items-center justify-center h-full gap-6">
             <div
-              className="text-8xl animate-pulse-slow"
-              style={{ color: 'var(--accent-cyan)', opacity: 0.8 }}
+              className="animate-pulse-slow"
+              style={{
+                width: 80,
+                height: 80,
+                background: 'var(--surface)',
+                border: '1px solid var(--border)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
             >
-              &#9672;
+              <span style={{ fontSize: '32px', color: 'var(--text-placeholder)' }}>↑</span>
             </div>
             <div className="text-center">
               <p
-                className="font-display text-4xl tracking-widest"
-                style={{ color: 'var(--text-primary)' }}
+                className="font-display text-2xl"
+                style={{ color: 'var(--text-primary)', fontWeight: '300' }}
               >
-                DROP FASTA FILES
+                No Results Yet
               </p>
-              <p
-                className="text-base mt-2"
-                style={{ color: 'var(--text-muted)', fontFamily: 'Figtree, sans-serif' }}
-              >
-                Upload sequences in the sidebar, then run the pipeline
+              <p className="text-sm mt-2" style={{ color: 'var(--text-secondary)' }}>
+                Upload FASTA files to begin RNA structure analysis
               </p>
             </div>
           </div>

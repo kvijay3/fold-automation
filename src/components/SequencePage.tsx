@@ -18,21 +18,17 @@ function inferBadge(r: SequenceResult) {
 
 function ImagePane({ url, label, error }: { url: string | null; label: string; error?: string }) {
   return (
-    <div className="flex flex-col" style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
-      <div
-        className="px-3 py-2 font-display tracking-widest text-xs"
-        style={{ background: 'rgba(255,255,255,0.03)', borderBottom: '1px solid var(--border)', color: 'var(--text-muted)' }}
-      >
+    <div className="flex flex-col gap-3">
+      <p className="font-display text-xs" style={{ color: 'var(--text-primary)', fontWeight: '300' }}>
         {label}
-      </div>
-      <div className="flex-1 flex items-center justify-center" style={{ background: '#060b16', minHeight: 200 }}>
+      </p>
+      <div className="flex items-center justify-center" style={{ background: 'var(--surface)', border: '1px solid var(--border)', minHeight: 200 }}>
         {url ? (
           <img src={url} alt={label} className="w-full object-contain" style={{ maxHeight: 400 }} />
         ) : (
           <div className="flex flex-col items-center gap-2 py-10" style={{ color: 'var(--text-muted)' }}>
-            <span className="text-2xl opacity-30">&#9672;</span>
-            <span className="text-xs" style={{ fontFamily: 'Figtree, sans-serif' }}>
-              {error ?? 'Not available'}
+            <span className="text-xs">
+              {error ?? 'Structure Visualization'}
             </span>
           </div>
         )}
@@ -43,14 +39,14 @@ function ImagePane({ url, label, error }: { url: string | null; label: string; e
 
 function MonoBlock({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex flex-col gap-1">
-      <span className="text-xs tracking-widest font-display" style={{ color: 'var(--text-muted)' }}>
+    <div className="flex flex-col gap-2">
+      <span className="font-display text-xs" style={{ color: 'var(--text-primary)', fontWeight: '300' }}>
         {label}
       </span>
       <span
-        className="text-xs px-3 py-2 rounded break-all"
+        className="text-xs px-4 py-3 break-all"
         style={{
-          background: '#0d1a2e',
+          background: 'var(--surface)',
           color: 'var(--text-primary)',
           fontFamily: 'JetBrains Mono, monospace',
           lineHeight: 1.7,
@@ -71,26 +67,24 @@ export function SequencePage({ result, index, total, onPrev, onNext }: SequenceP
     <div className="flex flex-col gap-6 h-full">
       {/* Header */}
       <div
-        className="flex items-center justify-between px-6 py-4 rounded-xl flex-shrink-0"
-        style={{ border: '1px solid var(--border)', background: 'var(--surface)' }}
+        className="flex items-center justify-between px-7 py-5 flex-shrink-0"
+        style={{ border: '1px solid var(--border)' }}
       >
         <div className="flex items-center gap-3 min-w-0">
-          <span style={{ color: 'var(--accent-cyan)' }}>&#9672;</span>
           <span
-            className="font-semibold truncate"
-            style={{ fontFamily: 'Figtree, sans-serif', color: 'var(--text-primary)', fontSize: 16 }}
+            className="font-display truncate"
+            style={{ color: 'var(--text-primary)', fontSize: 14, fontWeight: '300' }}
             title={result.seq_id}
           >
             {result.seq_id}
           </span>
           {badge && (
             <span
-              className="text-xs px-2 py-0.5 rounded-full font-semibold flex-shrink-0"
+              className="text-xs px-2 py-0.5 flex-shrink-0"
               style={{
-                background: `${badge.color}22`,
+                background: `${badge.color}15`,
                 color: badge.color,
-                border: `1px solid ${badge.color}44`,
-                fontFamily: 'Figtree, sans-serif',
+                border: `1px solid ${badge.color}`,
               }}
             >
               {badge.label}
@@ -99,12 +93,16 @@ export function SequencePage({ result, index, total, onPrev, onNext }: SequenceP
         </div>
         <div className="flex items-center gap-4 flex-shrink-0 ml-4">
           {result.mfe !== null && (
-            <span className="font-display text-lg" style={{ color: 'var(--accent-amber)' }}>
-              {result.mfe > 0 ? '+' : ''}{result.mfe} kcal/mol
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>MFE:</span>
+              <span className="font-display" style={{ color: 'var(--text-primary)', fontSize: 14, fontWeight: '300' }}>
+                {result.mfe > 0 ? '+' : ''}{result.mfe}
+              </span>
+              <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>kcal/mol</span>
+            </div>
           )}
-          <span className="text-xs" style={{ color: 'var(--text-muted)', fontFamily: 'Figtree, sans-serif' }}>
-            {result.length} nt &middot; {result.fasta_file}
+          <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+            Length: {result.length} nt
           </span>
         </div>
       </div>
@@ -113,18 +111,15 @@ export function SequencePage({ result, index, total, onPrev, onNext }: SequenceP
       <div className="flex-1 overflow-y-auto flex flex-col gap-6 pb-4">
         {/* FASTA sequence */}
         {result.sequence && (
-          <div
-            className="flex flex-col gap-1 p-4 rounded-lg"
-            style={{ border: '1px solid var(--border)', background: 'rgba(255,255,255,0.015)' }}
-          >
-            <p className="font-display tracking-widest text-xs mb-2" style={{ color: 'var(--text-muted)' }}>
-              FASTA SEQUENCE
+          <div className="flex flex-col gap-2">
+            <p className="font-display text-xs" style={{ color: 'var(--text-primary)', fontWeight: '300' }}>
+              RNA Sequence
             </p>
             <div
-              className="text-xs px-3 py-3 rounded overflow-auto"
+              className="text-xs px-4 py-4 overflow-auto"
               style={{
-                background: '#0d1a2e',
-                color: 'var(--accent-cyan)',
+                background: 'var(--surface)',
+                color: 'var(--text-primary)',
                 fontFamily: 'JetBrains Mono, monospace',
                 lineHeight: 1.8,
                 border: '1px solid var(--border)',
@@ -133,58 +128,49 @@ export function SequencePage({ result, index, total, onPrev, onNext }: SequenceP
                 whiteSpace: 'pre-wrap',
               }}
             >
-              &gt;{result.seq_id}{'\n'}{result.sequence}
+              {result.sequence}
             </div>
           </div>
         )}
 
         {/* Structure images — 2 column */}
-        <div className="grid grid-cols-2 gap-4">
-          <ImagePane url={result.colored_img_url} label="MFE STRUCTURE" />
-          <ImagePane url={result.centroid_img_url} label="CENTROID STRUCTURE" error={centroidError} />
+        <div className="grid grid-cols-2 gap-5">
+          <ImagePane url={result.colored_img_url} label="MFE Structure" />
+          <ImagePane url={result.centroid_img_url} label="Centroid Structure" error={centroidError} />
         </div>
 
         {/* Dot-plot */}
         {result.dp_img_url && (
-          <div className="flex flex-col" style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
-            <div
-              className="px-3 py-2 font-display tracking-widest text-xs"
-              style={{ background: 'rgba(255,255,255,0.03)', borderBottom: '1px solid var(--border)', color: 'var(--text-muted)' }}
-            >
-              DOT-PLOT &middot; BASE PAIR PROBABILITY MATRIX
-            </div>
-            <div className="flex justify-center p-4" style={{ background: '#060b16' }}>
+          <div className="flex flex-col gap-3">
+            <p className="font-display text-xs" style={{ color: 'var(--text-primary)', fontWeight: '300' }}>
+              Base Pair Probability
+            </p>
+            <div className="flex justify-center p-4" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
               <img src={result.dp_img_url} alt="Dot-plot" style={{ maxWidth: 420, width: '100%' }} />
             </div>
           </div>
         )}
 
         {/* Structure strings */}
-        <div
-          className="flex flex-col gap-4 p-4 rounded-lg"
-          style={{ border: '1px solid var(--border)', background: 'rgba(255,255,255,0.015)' }}
-        >
-          <p className="font-display tracking-widest text-xs" style={{ color: 'var(--text-muted)' }}>
-            STRUCTURE STRINGS
-          </p>
-          {result.mfe_structure && <MonoBlock label="MFE" value={result.mfe_structure} />}
-          {result.centroid_structure && <MonoBlock label="CENTROID" value={result.centroid_structure} />}
+        <div className="flex flex-col gap-4">
+          {result.mfe_structure && <MonoBlock label="MFE Structure" value={result.mfe_structure} />}
+          {result.centroid_structure && <MonoBlock label="Centroid Structure" value={result.centroid_structure} />}
         </div>
 
         {/* Image errors */}
         {result.img_errors && result.img_errors.length > 0 && (
-          <div className="flex flex-col gap-1 p-3 rounded-lg" style={{ background: 'rgba(244,63,94,0.08)', border: '1px solid rgba(244,63,94,0.2)' }}>
-            <p className="text-xs font-display tracking-widest" style={{ color: 'var(--high-tia)' }}>IMAGE ERRORS</p>
+          <div className="flex flex-col gap-1 p-3" style={{ background: 'rgba(228,35,19,0.05)', border: '1px solid var(--accent-red)' }}>
+            <p className="text-xs font-display" style={{ color: 'var(--accent-red)', fontWeight: '300' }}>Image Errors</p>
             {result.img_errors.map((e, i) => (
-              <p key={i} className="text-xs" style={{ color: 'var(--high-tia)', fontFamily: 'JetBrains Mono, monospace' }}>{e}</p>
+              <p key={i} className="text-xs font-mono" style={{ color: 'var(--accent-red)' }}>{e}</p>
             ))}
           </div>
         )}
 
         {/* General error */}
         {result.error && (
-          <div className="p-3 rounded-lg" style={{ background: 'rgba(244,63,94,0.08)', border: '1px solid rgba(244,63,94,0.2)' }}>
-            <p className="text-xs" style={{ color: 'var(--high-tia)', fontFamily: 'Figtree, sans-serif' }}>{result.error}</p>
+          <div className="p-3" style={{ background: 'rgba(228,35,19,0.05)', border: '1px solid var(--accent-red)' }}>
+            <p className="text-xs" style={{ color: 'var(--accent-red)' }}>{result.error}</p>
           </div>
         )}
 
@@ -193,33 +179,31 @@ export function SequencePage({ result, index, total, onPrev, onNext }: SequenceP
           <button
             onClick={onPrev}
             disabled={index === 0}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm transition-all duration-200"
+            className="flex items-center gap-2 px-5 py-2.5 font-display text-xs transition-all duration-150"
             style={{
               border: '1px solid var(--border)',
-              color: index === 0 ? 'var(--text-muted)' : 'var(--accent-cyan)',
+              color: 'var(--text-primary)',
               background: 'transparent',
               opacity: index === 0 ? 0.4 : 1,
               cursor: index === 0 ? 'default' : 'pointer',
-              fontFamily: 'Figtree, sans-serif',
             }}
           >
             <ChevronLeft size={14} />
             Previous
           </button>
-          <span className="text-xs" style={{ color: 'var(--text-muted)', fontFamily: 'Figtree, sans-serif' }}>
-            {index + 1} / {total}
+          <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+            {index + 1} of {total}
           </span>
           <button
             onClick={onNext}
             disabled={index === total - 1}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm transition-all duration-200"
+            className="flex items-center gap-2 px-5 py-2.5 font-display text-xs transition-all duration-150"
             style={{
               border: '1px solid var(--border)',
-              color: index === total - 1 ? 'var(--text-muted)' : 'var(--accent-cyan)',
+              color: 'var(--text-primary)',
               background: 'transparent',
               opacity: index === total - 1 ? 0.4 : 1,
               cursor: index === total - 1 ? 'default' : 'pointer',
-              fontFamily: 'Figtree, sans-serif',
             }}
           >
             Next

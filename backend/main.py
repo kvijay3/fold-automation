@@ -21,11 +21,40 @@ import modal
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
-    .apt_install("ghostscript")
+    .apt_install(
+        "ghostscript",
+        "cmake",
+        "build-essential",
+        "libboost-all-dev",
+        "git",
+        "pkg-config",
+        "wget",
+    )
+    # Install ViennaRNA from source to get development libraries for CentroidFold
+    .run_commands(
+        # Download and install ViennaRNA from source
+        "wget -q https://www.tbi.univie.ac.at/RNA/download/sourcecode/2_6_x/ViennaRNA-2.6.4.tar.gz -O /tmp/vienna.tar.gz",
+        "cd /tmp && tar -xzf vienna.tar.gz",
+        "cd /tmp/ViennaRNA-2.6.4 && ./configure --without-perl --without-python && make -j4 && make install",
+        "ldconfig",
+        "rm -rf /tmp/ViennaRNA-2.6.4 /tmp/vienna.tar.gz",
+    )
     .pip_install(
-        "ViennaRNA",
+        "ViennaRNA",  # Python bindings
         "fastapi",
         "python-multipart",
+    )
+    .run_commands(
+        # Clone CentroidFold from GitHub
+        "git clone https://github.com/satoken/centroid-rna-package.git /tmp/centroid",
+        # Build CentroidFold with cmake (now RNAlib2 will be found)
+        "cd /tmp/centroid && mkdir build && cd build && cmake .. && make",
+        # Install binaries to /usr/local/bin (they're in src/ subdirectory)
+        "cp /tmp/centroid/build/src/centroid_fold /usr/local/bin/",
+        "cp /tmp/centroid/build/src/centroid_alifold /usr/local/bin/ || true",
+        "cp /tmp/centroid/build/src/centroid_homfold /usr/local/bin/ || true",
+        # Cleanup build directory
+        "rm -rf /tmp/centroid",
     )
 )
 
@@ -100,44 +129,161 @@ def ps_to_png_bytes(ps_content: bytes) -> tuple[bytes | None, str | None]:
 
 
 # ---------------------------------------------------------------------------
-# Centroid fallback from bpp matrix
+# CentroidFold C++ binary wrapper
 # ---------------------------------------------------------------------------
 
-def _centroid_from_bpp(bppm, n: int) -> str:
+def _run_centroidfold(sequence: str, gamma: float = 6.0) -> str:
     """
-    Derive centroid structure directly from the bpp matrix.
-    Include base pair (i, j) when P(i,j) > 0.5 and the pair doesn't conflict
-    with an already-accepted pair. Pairs are checked in descending probability
-    order so the most confident pairs are placed first.
+    Run CentroidFold C++ binary to compute centroid structure.
+    
+    Uses the official CentroidFold implementation from:
+    https://github.com/satoken/centroid-rna-package
+    
+    Args:
+        sequence: RNA sequence
+        gamma: Gamma parameter for centroid calculation (default 6.0)
+        
+    Returns:
+        Centroid structure in dot-bracket notation
+        
+    Raises:
+        RuntimeError: If centroid_fold binary fails or output cannot be parsed
     """
-    # Collect all candidate pairs with their probability
-    candidates: list[tuple[float, int, int]] = []
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        input_fa = tmp_path / "input.fa"
+        input_fa.write_text(f">seq\n{sequence}\n")
+        
+        try:
+            result = subprocess.run(
+                ["centroid_fold", "-g", str(gamma), str(input_fa)],
+                cwd=str(tmp_path),
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+        except FileNotFoundError:
+            raise RuntimeError("centroid_fold binary not found - ensure CentroidFold is installed")
+        except subprocess.TimeoutExpired:
+            raise RuntimeError("centroid_fold timed out (> 300s)")
+        
+        if result.returncode != 0:
+            stderr = result.stderr.strip()[:200]
+            raise RuntimeError(f"centroid_fold failed (rc={result.returncode}): {stderr}")
+        
+        # Parse CentroidFold output format:
+        # Line 1: >seq
+        # Line 2: SEQUENCE
+        # Line 3: structure (energy)
+        lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+        
+        for line in lines:
+            # Look for structure line (contains parentheses/dots and energy in parentheses)
+            if line and not line.startswith('>') and ('(' in line or '.' in line):
+                # Extract structure before energy annotation
+                # Format: "..(((...))).. (energy)" or "..(((...))).. energy"
+                parts = line.split()
+                if parts:
+                    structure = parts[0]
+                    # Validate it's a structure (only contains valid characters)
+                    if all(c in '().[]{}' for c in structure):
+                        return structure
+        
+        raise RuntimeError(f"Could not parse centroid_fold output: {result.stdout[:200]}")
+
+
+# ---------------------------------------------------------------------------
+# Gamma-centroid estimator (Python fallback - kept for reference/debugging)
+# ---------------------------------------------------------------------------
+
+def _gamma_centroid_python(bppm, n: int, gamma: float = 1.0) -> str:
+    """
+    Compute gamma-centroid structure using dynamic programming.
+    
+    The gamma-centroid minimizes the expected gain:
+        E_γ = Σ(1 - P(i,j)) for paired (i,j) + γ × Σ P(i,j) for unpaired i
+    
+    This matches the CentroidFold algorithm from http://rtools.cbrc.jp/centroidfold/
+    
+    Args:
+        bppm: Base-pair probability matrix (1-indexed, upper-triangular)
+        n: Sequence length
+        gamma: Weight parameter (default 1.0, CentroidFold typically uses 1-6)
+    
+    Returns:
+        Dot-bracket structure string
+    """
+    # Compute per-position pairing probability: p[i] = Σ_j P(i,j)
+    p = [0.0] * (n + 1)
     for i in range(1, n + 1):
-        for j in range(i + 3, n + 1):  # minimum hairpin loop of 3
-            p = bppm[i][j]
-            if p > 0.5:
-                candidates.append((p, i, j))
-    candidates.sort(reverse=True)
-
-    paired: dict[int, int] = {}
-    for _, i, j in candidates:
-        if i not in paired and j not in paired:
-            paired[i] = j
-            paired[j] = i
-
-    arr = ['.'] * n
-    for i, j in paired.items():
-        if i < j:
-            arr[i - 1] = '('
-            arr[j - 1] = ')'
-    return ''.join(arr)
+        for j in range(1, n + 1):
+            if i < j:
+                p[i] += bppm[i][j]
+                p[j] += bppm[i][j]
+    
+    # Dynamic programming: gain[i][j] = max expected gain for subsequence i..j
+    gain = [[0.0] * (n + 2) for _ in range(n + 2)]
+    trace = [[None] * (n + 2) for _ in range(n + 2)]
+    
+    # Fill DP table
+    for length in range(1, n + 1):
+        for i in range(1, n - length + 2):
+            j = i + length - 1
+            if j > n:
+                continue
+            
+            # Option 1: i unpaired
+            gain_i_unpaired = gamma * p[i] + gain[i + 1][j]
+            gain[i][j] = gain_i_unpaired
+            trace[i][j] = ('unpair_i',)
+            
+            # Option 2: j unpaired (only if i < j)
+            if i < j:
+                gain_j_unpaired = gamma * p[j] + gain[i][j - 1]
+                if gain_j_unpaired > gain[i][j]:
+                    gain[i][j] = gain_j_unpaired
+                    trace[i][j] = ('unpair_j',)
+            
+            # Option 3: pair (i, k) for some k in (i+1, j]
+            for k in range(i + 1, j + 1):
+                if k - i < 4:  # minimum hairpin loop of 3
+                    continue
+                # Gain from pairing (i,k)
+                pair_gain = bppm[i][k] + gain[i + 1][k - 1] + gain[k + 1][j]
+                if pair_gain > gain[i][j]:
+                    gain[i][j] = pair_gain
+                    trace[i][j] = ('pair', k)
+    
+    # Traceback to build structure
+    structure = ['.'] * n
+    
+    def traceback(i: int, j: int):
+        if i > j or i < 1 or j > n:
+            return
+        if trace[i][j] is None:
+            return
+        
+        action = trace[i][j]
+        if action[0] == 'unpair_i':
+            traceback(i + 1, j)
+        elif action[0] == 'unpair_j':
+            traceback(i, j - 1)
+        elif action[0] == 'pair':
+            k = action[1]
+            structure[i - 1] = '('
+            structure[k - 1] = ')'
+            traceback(i + 1, k - 1)
+            traceback(k + 1, j)
+    
+    traceback(1, n)
+    return ''.join(structure)
 
 
 # ---------------------------------------------------------------------------
 # Fold one sequence
 # ---------------------------------------------------------------------------
 
-def fold_sequence(seq_id: str, sequence: str, fasta_filename: str = "") -> dict:
+def fold_sequence(seq_id: str, sequence: str, fasta_filename: str = "", gamma: float = 1.0) -> dict:
     try:
         import RNA
     except ImportError:
@@ -157,22 +303,13 @@ def fold_sequence(seq_id: str, sequence: str, fasta_filename: str = "") -> dict:
         fc.pf()
         bppm = fc.bpp()  # 1-based, upper-triangular
 
-        # Centroid — derive from base-pair probability matrix (primary method).
-        # fc.centroid() SWIG binding sometimes returns the MFE structure, so we
-        # compute directly from the bpp to guarantee independence.
-        centroid_structure = _centroid_from_bpp(bppm, n)
-
-        # If BPP centroid is all dots (no pair > 0.5) try fc.centroid() fallback
-        if set(centroid_structure) == {'.'}:
-            try:
-                centroid_result = fc.centroid()
-                raw = centroid_result[0] if isinstance(centroid_result, (tuple, list)) else centroid_result
-                if raw is not None:
-                    candidate = ''.join(c for c in str(raw) if c in '().')
-                    if len(candidate) == n and set(candidate) != {'.'}:
-                        centroid_structure = candidate
-            except Exception:
-                pass
+        # Centroid — use CentroidFold C++ binary (matches CentroidFold web server)
+        # gamma=6.0 is the default used by CentroidFold web server
+        try:
+            centroid_structure = _run_centroidfold(sequence, gamma=gamma)
+        except RuntimeError as e:
+            # Fallback to Python implementation if C++ binary fails
+            centroid_structure = _gamma_centroid_python(bppm, n, gamma=gamma)
 
         # Per-nucleotide pairing probability (used for colouring)
         pair_prob = [0.0] * (n + 1)
@@ -351,7 +488,10 @@ def web():
                     fc.exp_params_rescale(mfe)
                     fc.pf()
                     bppm = fc.bpp()
-                    centroid_structure = _centroid_from_bpp(bppm, n)
+                    try:
+                        centroid_structure = _run_centroidfold(sequence, gamma=1.0)
+                    except RuntimeError:
+                        centroid_structure = _gamma_centroid_python(bppm, n, gamma=1.0)
                     centroid_is_dots = set(centroid_structure) == {'.'}
 
                     fc_centroid_raw = None
@@ -377,7 +517,15 @@ def web():
         return results
 
     @api.post("/predict")
-    async def predict(request: Request, files: list[UploadFile] = File(...)):
+    async def predict(request: Request, files: list[UploadFile] = File(...), gamma: float = 6.0):
+        """
+        Predict RNA secondary structures.
+        
+        Args:
+            files: FASTA files to process
+            gamma: Gamma parameter for centroid structure (default 6.0, range 1-10)
+                   Higher values favor more base pairs. CentroidFold web server uses 6.0.
+        """
         if not files:
             raise HTTPException(status_code=400, detail="No files uploaded")
 
@@ -395,7 +543,7 @@ def web():
                 continue
 
             for seq_id, sequence in seqs:
-                r = fold_sequence(seq_id, sequence, upload.filename)
+                r = fold_sequence(seq_id, sequence, upload.filename, gamma=gamma)
 
                 colored_bytes  = r.pop("colored_img_bytes", None)
                 centroid_bytes = r.pop("centroid_img_bytes", None)

@@ -2,13 +2,16 @@ import type { SequenceResult } from './types';
 
 const ENDPOINT = import.meta.env.VITE_MODAL_ENDPOINT ?? 'http://localhost:8000';
 
-export async function predictStructures(files: File[]): Promise<SequenceResult[]> {
+export async function predictStructures(files: File[], gamma: number = 6.0): Promise<SequenceResult[]> {
   const form = new FormData();
   for (const file of files) {
     form.append('files', file, file.name);
   }
 
-  const res = await fetch(`${ENDPOINT}/predict`, {
+  const url = new URL(`${ENDPOINT}/predict`);
+  url.searchParams.set('gamma', gamma.toString());
+
+  const res = await fetch(url.toString(), {
     method: 'POST',
     body: form,
   });
