@@ -45,7 +45,7 @@ export default function App() {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [gamma, setGamma]               = useState(6.0);
   const [engine, setEngine]             = useState('BL');
-  const [bpWeight, setBpWeight]         = useState(2.0);
+  const [bpWeightExp, setBpWeightExp]   = useState(2); // Exponent: 2^2 = 4
 
   const handleRun = async () => {
     if (!files.length && !fastaText.trim()) return;
@@ -54,6 +54,7 @@ export default function App() {
     setResults([]);
     setSelectedIndex(0);
     try {
+      const bpWeight = Math.pow(2, bpWeightExp);
       const data = await predictStructures(files, fastaText, gamma, engine, bpWeight);
       setResults(data);
     } catch (err) {
@@ -188,19 +189,23 @@ export default function App() {
               <div className="flex items-center justify-between">
                 <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Base Pair Weight</span>
                 <span className="font-display text-xs" style={{ color: 'var(--text-primary)' }}>
-                  {bpWeight.toFixed(1)}
+                  2^{bpWeightExp}
                 </span>
               </div>
               <input
                 type="range"
-                min="1"
-                max="4"
-                step="0.1"
-                value={bpWeight}
-                onChange={(e) => setBpWeight(parseFloat(e.target.value))}
+                min="-5"
+                max="10"
+                step="1"
+                value={bpWeightExp}
+                onChange={(e) => setBpWeightExp(parseInt(e.target.value))}
                 className="w-full"
                 style={{ accentColor: 'var(--accent-red)' }}
               />
+              <div className="flex justify-between text-xs" style={{ color: 'var(--text-muted)' }}>
+                <span>2^-5</span>
+                <span>2^10</span>
+              </div>
             </div>
           </div>
 
