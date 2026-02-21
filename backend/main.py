@@ -298,8 +298,8 @@ def _gamma_centroid_python(bppm, n: int, gamma: float = 1.0) -> str:
 
 
 GAMMA_VALUES = [0.5, 1, 2, 4, 6, 8, 16, 32, 64, 128]
-# All three CentroidFold inference engines
-CENTROID_ENGINES = ["BL", "CONTRAfold", "RNAfold"]
+# Supported CentroidFold inference engines
+CENTROID_ENGINES = ["BL", "CONTRAfold"]
 
 
 def gamma_sweep(sequence: str, fc) -> dict:
@@ -433,55 +433,54 @@ def fold_sequence(seq_id: str, sequence: str, fasta_filename: str = "", gamma: f
         else:
             centroid_img_error = "No centroid structure returned from CentroidFold"
 
-        # ── MFE Dot-plot via ViennaRNA Python API ──
+        # ── Dot-plots via RNAfold -p subprocess ──
+        # Run RNAfold -p in a temp dir; it writes <id>_dp.ps automatically.
+        # We then overlay the MFE and centroid structure pairs respectively.
         dp_img_bytes: bytes | None = None
         dp_img_error: str | None = None
+        centroid_dp_img_bytes: bytes | None = None
+        centroid_dp_img_error: str | None = None
         try:
             with tempfile.TemporaryDirectory() as tmp:
-                dp_ps = Path(tmp) / f"{sid}_mfe_dp.ps"
-                # Convert bppm to plist format for PS_dot_plot_list
-                # plist is a list of tuples: [(i, j, prob, type), ...]
-                plist = []
-                for i in range(1, n + 1):
-                    for j in range(i + 1, n + 1):
-                        p = bppm[i][j]
-                        if p > 1e-5:  # Only include significant probabilities
-                            plist.append((i, j, p * p, 0))  # square prob for visual scaling
-                
-                RNA.PS_dot_plot_list(sequence, str(dp_ps), plist, mfe_structure, "")
-                if dp_ps.exists() and dp_ps.stat().st_size > 0:
+                tmp_path = Path(tmp)
+                fa_path = tmp_path / f"{sid}.fa"
+                fa_path.write_text(f">{sid}\n{sequence}\n")
+                proc = subprocess.run(
+                    ["RNAfold", "-p", str(fa_path)],
+                    cwd=str(tmp_path),
+                    capture_output=True,
+                    timeout=120,
+                )
+                dp_ps = tmp_path / f"{sid}_dp.ps"
+                if proc.returncode == 0 and dp_ps.exists() and dp_ps.stat().st_size > 0:
                     dp_img_bytes, gs_err = ps_to_png_bytes(dp_ps.read_bytes())
                     if gs_err:
                         dp_img_error = f"MFE dot-plot GS: {gs_err}"
                 else:
-                    dp_img_error = "MFE dot-plot PS file not generated"
-        except Exception as e:
-            dp_img_error = f"MFE dot-plot: {e}"
+                    dp_img_error = f"RNAfold -p failed (rc={proc.returncode})"
 
-        # ── Centroid Dot-plot via ViennaRNA Python API ──
-        centroid_dp_img_bytes: bytes | None = None
-        centroid_dp_img_error: str | None = None
-        if centroid_structure and set(centroid_structure) != {'.'}:
-            try:
-                with tempfile.TemporaryDirectory() as tmp:
-                    dp_ps = Path(tmp) / f"{sid}_centroid_dp.ps"
-                    plist = []
-                    for i in range(1, n + 1):
-                        for j in range(i + 1, n + 1):
-                            p = bppm[i][j]
-                            if p > 1e-5:
-                                plist.append((i, j, p * p, 0))
-                    RNA.PS_dot_plot_list(sequence, str(dp_ps), plist, centroid_structure, "")
-                    if dp_ps.exists() and dp_ps.stat().st_size > 0:
-                        centroid_dp_img_bytes, gs_err = ps_to_png_bytes(dp_ps.read_bytes())
-                        if gs_err:
-                            centroid_dp_img_error = f"Centroid dot-plot GS: {gs_err}"
-                    else:
-                        centroid_dp_img_error = "Centroid dot-plot PS file not generated"
-            except Exception as e:
-                centroid_dp_img_error = f"Centroid dot-plot: {e}"
-        else:
-            centroid_dp_img_error = "No centroid structure (all unpaired)"
+                # Centroid dot-plot: rewrite the PS file replacing MFE pairs
+                # with centroid pairs using RNA.PS_rna_plot_a on the dp PS.
+                # Simpler: generate a second dot-plot PS via RNA.PS_dot_plot
+                # using the centroid structure as the reference structure.
+                if centroid_structure and set(centroid_structure) != {'.'}:
+                    try:
+                        cdp_ps = tmp_path / f"{sid}_centroid_dp.ps"
+                        # RNA.PS_dot_plot(sequence, centroid_structure, filename)
+                        # writes a dot-plot with the given structure as reference
+                        RNA.PS_dot_plot(sequence, centroid_structure, str(cdp_ps))
+                        if cdp_ps.exists() and cdp_ps.stat().st_size > 0:
+                            centroid_dp_img_bytes, gs_err = ps_to_png_bytes(cdp_ps.read_bytes())
+                            if gs_err:
+                                centroid_dp_img_error = f"Centroid dot-plot GS: {gs_err}"
+                        else:
+                            centroid_dp_img_error = "Centroid dot-plot PS not generated"
+                    except Exception as e:
+                        centroid_dp_img_error = f"Centroid dot-plot: {e}"
+                else:
+                    centroid_dp_img_error = "No centroid structure (all unpaired)"
+        except Exception as e:
+            dp_img_error = f"Dot-plot subprocess: {e}"
 
         # ── Gamma sweep: all gamma × engine combinations ──
         sweep = gamma_sweep(sequence, fc)
