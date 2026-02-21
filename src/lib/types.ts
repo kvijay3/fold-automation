@@ -2,6 +2,7 @@ export interface CentroidSweepEntry {
   gamma: number;
   engine: string;
   structure: string | null;
+  img_url: string | null;
   error: string | null;
 }
 

@@ -302,30 +302,59 @@ GAMMA_VALUES = [0.5, 1, 2, 4, 6, 8, 16, 32, 64, 128]
 CENTROID_ENGINES = ["BL", "CONTRAfold"]
 
 
-def gamma_sweep(sequence: str, fc) -> dict:
+def gamma_sweep(sequence: str, fc, pair_prob: list) -> dict:
     """
-    Run ALL gamma × engine combinations using the CentroidFold C++ binary.
+    Run ALL gamma × engine combinations using the CentroidFold C++ binary
+    and generate a confidence-colored secondary structure image for each.
 
     Engines:
       BL         — McCaskill partition function (ViennaRNA)
       CONTRAfold — CONTRAfold probabilistic model
-      RNAfold    — RNAfold-based base-pair probabilities
 
-    10 gammas × 3 engines = 30 combinations total.
+    10 gammas × 2 engines = 20 combinations total.
     Always uses bp_weight=2.0 (CentroidFold default), independent of UI.
 
     Returns a dict:
-      centroid_sweep: list of {gamma, engine, structure, error}
+      centroid_sweep: list of {gamma, engine, structure, img_bytes, error}
       rnafold_sweep:  empty list (kept for API compatibility)
     """
+    import RNA
+    n = len(sequence)
+
+    # Build colour annotations from pair_prob (same scheme as centroid image)
+    def make_annotations(struct: str) -> str:
+        annotations = ""
+        for i in range(1, n + 1):
+            hue = 0.333 - pair_prob[i] * 0.250
+            annotations += f"{hue:.4f} 0.85 0.9 sethsbcolor {i} cmark\n"
+        return annotations
+
     centroid_sweep = []
     for g in GAMMA_VALUES:
         for eng in CENTROID_ENGINES:
+            entry: dict = {"gamma": g, "engine": eng, "structure": None, "img_bytes": None, "error": None}
             try:
                 struct = _run_centroidfold(sequence, gamma=g, engine=eng, bp_weight=2.0)
-                centroid_sweep.append({"gamma": g, "engine": eng, "structure": struct, "error": None})
+                entry["structure"] = struct
+                # Generate colored structure image
+                try:
+                    annotations = make_annotations(struct)
+                    with tempfile.TemporaryDirectory() as tmp:
+                        ps_path = Path(tmp) / f"sweep_{g}_{eng}.ps"
+                        ret = RNA.PS_rna_plot_a(sequence, struct, str(ps_path), annotations, "")
+                        if ps_path.exists() and ps_path.stat().st_size > 0:
+                            img_bytes, gs_err = ps_to_png_bytes(ps_path.read_bytes())
+                            if not gs_err:
+                                entry["img_bytes"] = img_bytes
+                            else:
+                                entry["error"] = f"GS: {gs_err}"
+                        else:
+                            entry["error"] = f"PS_rna_plot_a returned {ret}"
+                except Exception as e:
+                    entry["error"] = f"Image: {e}"
             except RuntimeError as e:
-                centroid_sweep.append({"gamma": g, "engine": eng, "structure": None, "error": str(e)})
+                entry["error"] = str(e)
+            centroid_sweep.append(entry)
 
     return {"centroid_sweep": centroid_sweep, "rnafold_sweep": []}
 
@@ -483,7 +512,7 @@ def fold_sequence(seq_id: str, sequence: str, fasta_filename: str = "", gamma: f
             dp_img_error = f"Dot-plot subprocess: {e}"
 
         # ── Gamma sweep: all gamma × engine combinations ──
-        sweep = gamma_sweep(sequence, fc)
+        sweep = gamma_sweep(sequence, fc, pair_prob)
 
         return {
             "fasta_file": fasta_filename,
@@ -653,6 +682,11 @@ def web():
                     r["centroid_img_url"]    = make_url(request, save_image(centroid_bytes))    if centroid_bytes    else None
                     r["dp_img_url"]          = make_url(request, save_image(dp_bytes))          if dp_bytes          else None
                     r["centroid_dp_img_url"] = make_url(request, save_image(centroid_dp_bytes)) if centroid_dp_bytes else None
+
+                    for entry in r.get("centroid_sweep", []):
+                        b = entry.pop("img_bytes", None)
+                        entry["img_url"] = make_url(request, save_image(b)) if b else None
+
                     results.append(r)
         
         # Process uploaded files
@@ -680,7 +714,11 @@ def web():
                 r["centroid_img_url"]    = make_url(request, save_image(centroid_bytes))    if centroid_bytes    else None
                 r["dp_img_url"]          = make_url(request, save_image(dp_bytes))          if dp_bytes          else None
                 r["centroid_dp_img_url"] = make_url(request, save_image(centroid_dp_bytes)) if centroid_dp_bytes else None
-                # keep img_errors from fold_sequence; already in r
+
+                for entry in r.get("centroid_sweep", []):
+                    b = entry.pop("img_bytes", None)
+                    entry["img_url"] = make_url(request, save_image(b)) if b else None
+
                 results.append(r)
 
         return results
