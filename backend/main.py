@@ -298,40 +298,36 @@ def _gamma_centroid_python(bppm, n: int, gamma: float = 1.0) -> str:
 
 
 GAMMA_VALUES = [0.5, 1, 2, 4, 6, 8, 16, 32, 64, 128]
-CENTROID_ENGINES = ["BL", "CONTRAfold"]
+# All three CentroidFold inference engines
+CENTROID_ENGINES = ["BL", "CONTRAfold", "RNAfold"]
 
 
-def gamma_sweep(sequence: str, bppm, n: int, bp_weight: float = 2.0) -> dict:
+def gamma_sweep(sequence: str, fc) -> dict:
     """
-    Run all gamma × engine combinations for CentroidFold and RNAfold.
+    Run ALL gamma × engine combinations using the CentroidFold C++ binary.
+
+    Engines:
+      BL         — McCaskill partition function (ViennaRNA)
+      CONTRAfold — CONTRAfold probabilistic model
+      RNAfold    — RNAfold-based base-pair probabilities
+
+    10 gammas × 3 engines = 30 combinations total.
+    Always uses bp_weight=2.0 (CentroidFold default), independent of UI.
 
     Returns a dict:
       centroid_sweep: list of {gamma, engine, structure, error}
-      rnafold_sweep:  list of {gamma, structure}  (ViennaRNA Python gamma-centroid)
+      rnafold_sweep:  empty list (kept for API compatibility)
     """
     centroid_sweep = []
     for g in GAMMA_VALUES:
         for eng in CENTROID_ENGINES:
             try:
-                struct = _run_centroidfold(sequence, gamma=g, engine=eng, bp_weight=bp_weight)
+                struct = _run_centroidfold(sequence, gamma=g, engine=eng, bp_weight=2.0)
                 centroid_sweep.append({"gamma": g, "engine": eng, "structure": struct, "error": None})
             except RuntimeError as e:
-                # Fallback to Python implementation
-                try:
-                    struct = _gamma_centroid_python(bppm, n, gamma=g)
-                    centroid_sweep.append({"gamma": g, "engine": eng, "structure": struct, "error": f"fallback: {e}"})
-                except Exception as e2:
-                    centroid_sweep.append({"gamma": g, "engine": eng, "structure": None, "error": str(e2)})
+                centroid_sweep.append({"gamma": g, "engine": eng, "structure": None, "error": str(e)})
 
-    rnafold_sweep = []
-    for g in GAMMA_VALUES:
-        try:
-            struct = _gamma_centroid_python(bppm, n, gamma=g)
-            rnafold_sweep.append({"gamma": g, "structure": struct, "error": None})
-        except Exception as e:
-            rnafold_sweep.append({"gamma": g, "structure": None, "error": str(e)})
-
-    return {"centroid_sweep": centroid_sweep, "rnafold_sweep": rnafold_sweep}
+    return {"centroid_sweep": centroid_sweep, "rnafold_sweep": []}
 
 
 # ---------------------------------------------------------------------------
@@ -488,7 +484,7 @@ def fold_sequence(seq_id: str, sequence: str, fasta_filename: str = "", gamma: f
             centroid_dp_img_error = "No centroid structure (all unpaired)"
 
         # ── Gamma sweep: all gamma × engine combinations ──
-        sweep = gamma_sweep(sequence, bppm, n, bp_weight=bp_weight)
+        sweep = gamma_sweep(sequence, fc)
 
         return {
             "fasta_file": fasta_filename,

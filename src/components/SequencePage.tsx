@@ -219,7 +219,7 @@ export function SequencePage({ result, index, total, onPrev, onNext }: SequenceP
         {result.centroid_sweep && result.centroid_sweep.length > 0 && (
           <div className="flex flex-col gap-3">
             <p className="font-display text-xs" style={{ color: 'var(--text-primary)', fontWeight: '300' }}>
-              CENTROIDFOLD — All γ × Engine Combinations
+              CENTROIDFOLD — All γ × Engine Combinations (BL · CONTRAfold · RNAfold)
             </p>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.72rem' }}>
