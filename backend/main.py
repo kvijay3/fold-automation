@@ -401,8 +401,8 @@ def fold_sequence(seq_id: str, sequence: str, fasta_filename: str = "", gamma: f
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 dp_ps = Path(tmp) / f"{sid}_dp.ps"
-                RNA.pf_fold(sequence)
-                RNA.PS_dot_plot(sequence, str(dp_ps))
+                # Use the fold compound that already has pf() computed
+                fc.PS_dot_plot(str(dp_ps))
                 if dp_ps.exists() and dp_ps.stat().st_size > 0:
                     dp_img_bytes, gs_err = ps_to_png_bytes(dp_ps.read_bytes())
                     if gs_err:
