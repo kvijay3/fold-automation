@@ -27,9 +27,9 @@ function ImagePane({ url, label, error }: { url: string | null; label: string; e
         {url ? (
           <img src={url} alt={label} className="w-full object-contain" style={{ maxHeight: 400 }} />
         ) : (
-          <div className="flex flex-col items-center gap-2 py-10" style={{ color: 'var(--text-muted)' }}>
+          <div className="flex flex-col items-center gap-2 py-10" style={{ color: error ? 'var(--accent-red)' : 'var(--text-muted)' }}>
             <span className="text-xs">
-              {error ?? 'Structure Visualization'}
+              {error ?? 'No image available'}
             </span>
           </div>
         )}
@@ -173,16 +173,22 @@ export function SequencePage({ result, index, total, onPrev, onNext }: SequenceP
         </div>
 
         {/* Dot-plot */}
-        {result.dp_img_url && (
-          <div className="flex flex-col gap-3">
-            <p className="font-display text-xs" style={{ color: 'var(--text-primary)', fontWeight: '300' }}>
-              Base Pair Probability
-            </p>
-            <div className="flex justify-center p-4" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+        <div className="flex flex-col gap-3">
+          <p className="font-display text-xs" style={{ color: 'var(--text-primary)', fontWeight: '300' }}>
+            Base Pair Probability
+          </p>
+          <div className="flex justify-center p-4" style={{ background: 'var(--surface)', border: '1px solid var(--border)', minHeight: 200 }}>
+            {result.dp_img_url ? (
               <img src={result.dp_img_url} alt="Dot-plot" style={{ maxWidth: 420, width: '100%' }} />
-            </div>
+            ) : (
+              <div className="flex items-center justify-center" style={{ color: 'var(--text-muted)' }}>
+                <span className="text-xs">
+                  {result.img_errors?.find(e => e.includes('Dot-plot') || e.includes('dot-plot')) ?? 'No dot plot available'}
+                </span>
+              </div>
+            )}
           </div>
-        )}
+        </div>
 
         {/* Structure strings */}
         <div className="flex flex-col gap-4">
