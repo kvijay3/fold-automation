@@ -297,6 +297,43 @@ def _gamma_centroid_python(bppm, n: int, gamma: float = 1.0) -> str:
     return ''.join(structure)
 
 
+GAMMA_VALUES = [0.5, 1, 2, 4, 6, 8, 16, 32, 64, 128]
+CENTROID_ENGINES = ["BL", "CONTRAfold"]
+
+
+def gamma_sweep(sequence: str, bppm, n: int, bp_weight: float = 2.0) -> dict:
+    """
+    Run all gamma × engine combinations for CentroidFold and RNAfold.
+
+    Returns a dict:
+      centroid_sweep: list of {gamma, engine, structure, error}
+      rnafold_sweep:  list of {gamma, structure}  (ViennaRNA Python gamma-centroid)
+    """
+    centroid_sweep = []
+    for g in GAMMA_VALUES:
+        for eng in CENTROID_ENGINES:
+            try:
+                struct = _run_centroidfold(sequence, gamma=g, engine=eng, bp_weight=bp_weight)
+                centroid_sweep.append({"gamma": g, "engine": eng, "structure": struct, "error": None})
+            except RuntimeError as e:
+                # Fallback to Python implementation
+                try:
+                    struct = _gamma_centroid_python(bppm, n, gamma=g)
+                    centroid_sweep.append({"gamma": g, "engine": eng, "structure": struct, "error": f"fallback: {e}"})
+                except Exception as e2:
+                    centroid_sweep.append({"gamma": g, "engine": eng, "structure": None, "error": str(e2)})
+
+    rnafold_sweep = []
+    for g in GAMMA_VALUES:
+        try:
+            struct = _gamma_centroid_python(bppm, n, gamma=g)
+            rnafold_sweep.append({"gamma": g, "structure": struct, "error": None})
+        except Exception as e:
+            rnafold_sweep.append({"gamma": g, "structure": None, "error": str(e)})
+
+    return {"centroid_sweep": centroid_sweep, "rnafold_sweep": rnafold_sweep}
+
+
 # ---------------------------------------------------------------------------
 # Fold one sequence
 # ---------------------------------------------------------------------------
@@ -370,13 +407,15 @@ def fold_sequence(seq_id: str, sequence: str, fasta_filename: str = "", gamma: f
             colored_img_error = f"MFE image: {e}"
 
         # ── Centroid structure image (via ViennaRNA Python API) ──
-        #
-        # Use a fresh fold_compound so the internal coordinates are
-        # recalculated for the centroid structure (PS_rna_plot_a caches
-        # layout coords from the previous call).
         centroid_img_bytes: bytes | None = None
         centroid_img_error: str | None = None
-        if centroid_structure and set(centroid_structure) != {'.'}:
+        if centroid_structure:
+            # Check if structure has any base pairs
+            has_pairs = set(centroid_structure) != {'.'}
+            if not has_pairs:
+                centroid_img_error = f"Centroid structure has no base pairs (all dots): {centroid_structure[:50]}..."
+            
+            # Try to generate image anyway for debugging
             try:
                 with tempfile.TemporaryDirectory() as tmp:
                     ps_path = Path(tmp) / f"{sid}_centroid.ps"
@@ -388,29 +427,68 @@ def fold_sequence(seq_id: str, sequence: str, fasta_filename: str = "", gamma: f
                         centroid_img_bytes, gs_err = ps_to_png_bytes(ps_path.read_bytes())
                         if gs_err:
                             centroid_img_error = f"Centroid GS: {gs_err}"
+                        elif not has_pairs:
+                            # Clear error if image was generated successfully
+                            centroid_img_error = None
                     else:
-                        centroid_img_error = f"PS_rna_plot_a returned {ret}, no centroid ps file"
+                        centroid_img_error = f"PS_rna_plot_a returned {ret}, PS file not created"
             except Exception as e:
-                centroid_img_error = f"Centroid image: {e}"
+                centroid_img_error = f"Centroid image error: {str(e)}"
         else:
-            centroid_img_error = "No centroid structure computed (all dots)"
+            centroid_img_error = "No centroid structure returned from CentroidFold"
 
-        # ── Dot-plot via ViennaRNA Python API ──
+        # ── MFE Dot-plot via ViennaRNA Python API ──
         dp_img_bytes: bytes | None = None
         dp_img_error: str | None = None
         try:
             with tempfile.TemporaryDirectory() as tmp:
-                dp_ps = Path(tmp) / f"{sid}_dp.ps"
-                # Use the fold compound that already has pf() computed
-                fc.PS_dot_plot(str(dp_ps))
+                dp_ps = Path(tmp) / f"{sid}_mfe_dp.ps"
+                # Convert bppm to plist format for PS_dot_plot_list
+                # plist is a list of tuples: [(i, j, prob, type), ...]
+                plist = []
+                for i in range(1, n + 1):
+                    for j in range(i + 1, n + 1):
+                        p = bppm[i][j]
+                        if p > 1e-5:  # Only include significant probabilities
+                            plist.append((i, j, p * p, 0))  # square prob for visual scaling
+                
+                RNA.PS_dot_plot_list(sequence, str(dp_ps), plist, mfe_structure, "")
                 if dp_ps.exists() and dp_ps.stat().st_size > 0:
                     dp_img_bytes, gs_err = ps_to_png_bytes(dp_ps.read_bytes())
                     if gs_err:
-                        dp_img_error = f"Dot-plot GS: {gs_err}"
+                        dp_img_error = f"MFE dot-plot GS: {gs_err}"
                 else:
-                    dp_img_error = "Dot-plot PS file not generated"
+                    dp_img_error = "MFE dot-plot PS file not generated"
         except Exception as e:
-            dp_img_error = f"Dot-plot: {e}"
+            dp_img_error = f"MFE dot-plot: {e}"
+
+        # ── Centroid Dot-plot via ViennaRNA Python API ──
+        centroid_dp_img_bytes: bytes | None = None
+        centroid_dp_img_error: str | None = None
+        if centroid_structure and set(centroid_structure) != {'.'}:
+            try:
+                with tempfile.TemporaryDirectory() as tmp:
+                    dp_ps = Path(tmp) / f"{sid}_centroid_dp.ps"
+                    plist = []
+                    for i in range(1, n + 1):
+                        for j in range(i + 1, n + 1):
+                            p = bppm[i][j]
+                            if p > 1e-5:
+                                plist.append((i, j, p * p, 0))
+                    RNA.PS_dot_plot_list(sequence, str(dp_ps), plist, centroid_structure, "")
+                    if dp_ps.exists() and dp_ps.stat().st_size > 0:
+                        centroid_dp_img_bytes, gs_err = ps_to_png_bytes(dp_ps.read_bytes())
+                        if gs_err:
+                            centroid_dp_img_error = f"Centroid dot-plot GS: {gs_err}"
+                    else:
+                        centroid_dp_img_error = "Centroid dot-plot PS file not generated"
+            except Exception as e:
+                centroid_dp_img_error = f"Centroid dot-plot: {e}"
+        else:
+            centroid_dp_img_error = "No centroid structure (all unpaired)"
+
+        # ── Gamma sweep: all gamma × engine combinations ──
+        sweep = gamma_sweep(sequence, bppm, n, bp_weight=bp_weight)
 
         return {
             "fasta_file": fasta_filename,
@@ -423,8 +501,11 @@ def fold_sequence(seq_id: str, sequence: str, fasta_filename: str = "", gamma: f
             "colored_img_bytes": colored_img_bytes,
             "centroid_img_bytes": centroid_img_bytes,
             "dp_img_bytes": dp_img_bytes,
+            "centroid_dp_img_bytes": centroid_dp_img_bytes,
+            "centroid_sweep": sweep["centroid_sweep"],
+            "rnafold_sweep": sweep["rnafold_sweep"],
             "error": None,
-            "img_errors": [e for e in [colored_img_error, centroid_img_error, dp_img_error] if e],
+            "img_errors": [e for e in [colored_img_error, centroid_img_error, dp_img_error, centroid_dp_img_error] if e],
         }
 
     except Exception as exc:
@@ -568,13 +649,15 @@ def web():
                 for seq_id, sequence in seqs:
                     r = fold_sequence(seq_id, sequence, "text_input", gamma=gamma, engine=engine, bp_weight=bp_weight)
                     
-                    colored_bytes  = r.pop("colored_img_bytes", None)
-                    centroid_bytes = r.pop("centroid_img_bytes", None)
-                    dp_bytes       = r.pop("dp_img_bytes", None)
+                    colored_bytes     = r.pop("colored_img_bytes", None)
+                    centroid_bytes    = r.pop("centroid_img_bytes", None)
+                    dp_bytes          = r.pop("dp_img_bytes", None)
+                    centroid_dp_bytes = r.pop("centroid_dp_img_bytes", None)
 
-                    r["colored_img_url"]  = make_url(request, save_image(colored_bytes))  if colored_bytes  else None
-                    r["centroid_img_url"] = make_url(request, save_image(centroid_bytes)) if centroid_bytes else None
-                    r["dp_img_url"]       = make_url(request, save_image(dp_bytes))       if dp_bytes       else None
+                    r["colored_img_url"]     = make_url(request, save_image(colored_bytes))     if colored_bytes     else None
+                    r["centroid_img_url"]    = make_url(request, save_image(centroid_bytes))    if centroid_bytes    else None
+                    r["dp_img_url"]          = make_url(request, save_image(dp_bytes))          if dp_bytes          else None
+                    r["centroid_dp_img_url"] = make_url(request, save_image(centroid_dp_bytes)) if centroid_dp_bytes else None
                     results.append(r)
         
         # Process uploaded files
@@ -593,13 +676,15 @@ def web():
             for seq_id, sequence in seqs:
                 r = fold_sequence(seq_id, sequence, upload.filename, gamma=gamma, engine=engine, bp_weight=bp_weight)
 
-                colored_bytes  = r.pop("colored_img_bytes", None)
-                centroid_bytes = r.pop("centroid_img_bytes", None)
-                dp_bytes       = r.pop("dp_img_bytes", None)
+                colored_bytes     = r.pop("colored_img_bytes", None)
+                centroid_bytes    = r.pop("centroid_img_bytes", None)
+                dp_bytes          = r.pop("dp_img_bytes", None)
+                centroid_dp_bytes = r.pop("centroid_dp_img_bytes", None)
 
-                r["colored_img_url"]  = make_url(request, save_image(colored_bytes))  if colored_bytes  else None
-                r["centroid_img_url"] = make_url(request, save_image(centroid_bytes)) if centroid_bytes else None
-                r["dp_img_url"]       = make_url(request, save_image(dp_bytes))       if dp_bytes       else None
+                r["colored_img_url"]     = make_url(request, save_image(colored_bytes))     if colored_bytes     else None
+                r["centroid_img_url"]    = make_url(request, save_image(centroid_bytes))    if centroid_bytes    else None
+                r["dp_img_url"]          = make_url(request, save_image(dp_bytes))          if dp_bytes          else None
+                r["centroid_dp_img_url"] = make_url(request, save_image(centroid_dp_bytes)) if centroid_dp_bytes else None
                 # keep img_errors from fold_sequence; already in r
                 results.append(r)
 
@@ -620,6 +705,7 @@ def _api_error(filename: str, msg: str) -> dict:
         "colored_img_url": None,
         "centroid_img_url": None,
         "dp_img_url": None,
+        "centroid_dp_img_url": None,
         "error": msg,
         "img_errors": [],
     }

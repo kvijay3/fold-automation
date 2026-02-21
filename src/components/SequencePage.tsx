@@ -1,6 +1,6 @@
 import React from 'react';
 import { ChevronLeft, ChevronRight, Copy, Check } from 'lucide-react';
-import type { SequenceResult } from '../lib/types';
+import type { SequenceResult, CentroidSweepEntry, RNAfoldSweepEntry } from '../lib/types';
 
 interface SequencePageProps {
   result: SequenceResult;
@@ -172,21 +172,40 @@ export function SequencePage({ result, index, total, onPrev, onNext }: SequenceP
           <ImagePane url={result.centroid_img_url} label="Centroid Structure" error={centroidError} />
         </div>
 
-        {/* Dot-plot */}
-        <div className="flex flex-col gap-3">
-          <p className="font-display text-xs" style={{ color: 'var(--text-primary)', fontWeight: '300' }}>
-            Base Pair Probability
-          </p>
-          <div className="flex justify-center p-4" style={{ background: 'var(--surface)', border: '1px solid var(--border)', minHeight: 200 }}>
-            {result.dp_img_url ? (
-              <img src={result.dp_img_url} alt="Dot-plot" style={{ maxWidth: 420, width: '100%' }} />
-            ) : (
-              <div className="flex items-center justify-center" style={{ color: 'var(--text-muted)' }}>
-                <span className="text-xs">
-                  {result.img_errors?.find(e => e.includes('Dot-plot') || e.includes('dot-plot')) ?? 'No dot plot available'}
-                </span>
-              </div>
-            )}
+        {/* Dot-plots — 2 column */}
+        <div className="grid grid-cols-2 gap-5">
+          <div className="flex flex-col gap-3">
+            <p className="font-display text-xs" style={{ color: 'var(--text-primary)', fontWeight: '300' }}>
+              MFE Dot-Plot
+            </p>
+            <div className="flex justify-center p-4" style={{ background: 'var(--surface)', border: '1px solid var(--border)', minHeight: 200 }}>
+              {result.dp_img_url ? (
+                <img src={result.dp_img_url} alt="MFE Dot-plot" style={{ maxWidth: 420, width: '100%' }} />
+              ) : (
+                <div className="flex items-center justify-center" style={{ color: 'var(--text-muted)' }}>
+                  <span className="text-xs">
+                    {result.img_errors?.find(e => e.includes('MFE dot-plot')) ?? 'No MFE dot-plot available'}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-3">
+            <p className="font-display text-xs" style={{ color: 'var(--text-primary)', fontWeight: '300' }}>
+              Centroid Dot-Plot
+            </p>
+            <div className="flex justify-center p-4" style={{ background: 'var(--surface)', border: '1px solid var(--border)', minHeight: 200 }}>
+              {result.centroid_dp_img_url ? (
+                <img src={result.centroid_dp_img_url} alt="Centroid Dot-plot" style={{ maxWidth: 420, width: '100%' }} />
+              ) : (
+                <div className="flex items-center justify-center" style={{ color: 'var(--text-muted)' }}>
+                  <span className="text-xs">
+                    {result.img_errors?.find(e => e.includes('Centroid dot-plot')) ?? 'No centroid dot-plot available'}
+                  </span>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -195,6 +214,76 @@ export function SequencePage({ result, index, total, onPrev, onNext }: SequenceP
           {result.mfe_structure && <MonoBlock label="MFE Structure" value={result.mfe_structure} />}
           {result.centroid_structure && <MonoBlock label="Centroid Structure" value={result.centroid_structure} />}
         </div>
+
+        {/* CentroidFold gamma sweep table */}
+        {result.centroid_sweep && result.centroid_sweep.length > 0 && (
+          <div className="flex flex-col gap-3">
+            <p className="font-display text-xs" style={{ color: 'var(--text-primary)', fontWeight: '300' }}>
+              CENTROIDFOLD — All γ × Engine Combinations
+            </p>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.72rem' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                    <th style={{ textAlign: 'left', padding: '6px 10px', color: 'var(--text-secondary)', fontWeight: '400', fontFamily: 'var(--font-display)', width: 60 }}>γ</th>
+                    <th style={{ textAlign: 'left', padding: '6px 10px', color: 'var(--text-secondary)', fontWeight: '400', fontFamily: 'var(--font-display)', width: 100 }}>Engine</th>
+                    <th style={{ textAlign: 'left', padding: '6px 10px', color: 'var(--text-secondary)', fontWeight: '400', fontFamily: 'var(--font-display)' }}>Structure</th>
+                    <th style={{ textAlign: 'right', padding: '6px 10px', color: 'var(--text-secondary)', fontWeight: '400', fontFamily: 'var(--font-display)', width: 60 }}>Pairs</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {result.centroid_sweep.map((entry: CentroidSweepEntry, i: number) => {
+                    const pairs = entry.structure ? (entry.structure.match(/\(/g) || []).length : 0;
+                    return (
+                      <tr key={i} style={{ borderBottom: '1px solid var(--border)', background: i % 2 === 0 ? 'transparent' : 'var(--surface)' }}>
+                        <td style={{ padding: '5px 10px', color: 'var(--text-primary)', fontFamily: 'var(--font-display)' }}>{entry.gamma}</td>
+                        <td style={{ padding: '5px 10px', color: 'var(--text-secondary)' }}>{entry.engine}</td>
+                        <td style={{ padding: '5px 10px', fontFamily: 'JetBrains Mono, monospace', color: entry.error && !entry.structure ? 'var(--accent-red)' : 'var(--text-primary)', wordBreak: 'break-all' }}>
+                          {entry.structure ?? entry.error ?? '—'}
+                        </td>
+                        <td style={{ padding: '5px 10px', textAlign: 'right', color: pairs > 0 ? 'var(--text-primary)' : 'var(--text-muted)', fontFamily: 'var(--font-display)' }}>{pairs}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* RNAfold gamma sweep table */}
+        {result.rnafold_sweep && result.rnafold_sweep.length > 0 && (
+          <div className="flex flex-col gap-3">
+            <p className="font-display text-xs" style={{ color: 'var(--text-primary)', fontWeight: '300' }}>
+              RNAFOLD — γ-Centroid Sweep
+            </p>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.72rem' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                    <th style={{ textAlign: 'left', padding: '6px 10px', color: 'var(--text-secondary)', fontWeight: '400', fontFamily: 'var(--font-display)', width: 60 }}>γ</th>
+                    <th style={{ textAlign: 'left', padding: '6px 10px', color: 'var(--text-secondary)', fontWeight: '400', fontFamily: 'var(--font-display)' }}>Structure</th>
+                    <th style={{ textAlign: 'right', padding: '6px 10px', color: 'var(--text-secondary)', fontWeight: '400', fontFamily: 'var(--font-display)', width: 60 }}>Pairs</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {result.rnafold_sweep.map((entry: RNAfoldSweepEntry, i: number) => {
+                    const pairs = entry.structure ? (entry.structure.match(/\(/g) || []).length : 0;
+                    return (
+                      <tr key={i} style={{ borderBottom: '1px solid var(--border)', background: i % 2 === 0 ? 'transparent' : 'var(--surface)' }}>
+                        <td style={{ padding: '5px 10px', color: 'var(--text-primary)', fontFamily: 'var(--font-display)' }}>{entry.gamma}</td>
+                        <td style={{ padding: '5px 10px', fontFamily: 'JetBrains Mono, monospace', color: entry.error && !entry.structure ? 'var(--accent-red)' : 'var(--text-primary)', wordBreak: 'break-all' }}>
+                          {entry.structure ?? entry.error ?? '—'}
+                        </td>
+                        <td style={{ padding: '5px 10px', textAlign: 'right', color: pairs > 0 ? 'var(--text-primary)' : 'var(--text-muted)', fontFamily: 'var(--font-display)' }}>{pairs}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
         {/* Image errors */}
         {result.img_errors && result.img_errors.length > 0 && (
