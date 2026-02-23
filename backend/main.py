@@ -311,7 +311,7 @@ def gamma_sweep(sequence: str, fc, pair_prob: list) -> dict:
       BL         — McCaskill partition function (ViennaRNA)
       CONTRAfold — CONTRAfold probabilistic model
 
-    10 gammas × 2 engines = 20 combinations total.
+    10 gammas × 2 engines = 20 combinations, run in parallel.
     Always uses bp_weight=2.0 (CentroidFold default), independent of UI.
 
     Returns a dict:
@@ -319,9 +319,10 @@ def gamma_sweep(sequence: str, fc, pair_prob: list) -> dict:
       rnafold_sweep:  empty list (kept for API compatibility)
     """
     import RNA
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     n = len(sequence)
 
-    # Build colour annotations from pair_prob (same scheme as centroid image)
     def make_annotations(struct: str) -> str:
         annotations = ""
         for i in range(1, n + 1):
@@ -329,33 +330,55 @@ def gamma_sweep(sequence: str, fc, pair_prob: list) -> dict:
             annotations += f"{hue:.4f} 0.85 0.9 sethsbcolor {i} cmark\n"
         return annotations
 
-    centroid_sweep = []
-    for g in GAMMA_VALUES:
-        for eng in CENTROID_ENGINES:
-            entry: dict = {"gamma": g, "engine": eng, "structure": None, "img_bytes": None, "error": None}
+    def run_one(g: float, eng: str) -> dict:
+        print(f"[sweep] START  γ={g} engine={eng}")
+        entry: dict = {"gamma": g, "engine": eng, "structure": None, "img_bytes": None, "error": None}
+        try:
+            struct = _run_centroidfold(sequence, gamma=g, engine=eng, bp_weight=2.0)
+            pairs = struct.count('(')
+            print(f"[sweep] FOLD   γ={g} engine={eng} → {pairs} pairs")
+            entry["structure"] = struct
             try:
-                struct = _run_centroidfold(sequence, gamma=g, engine=eng, bp_weight=2.0)
-                entry["structure"] = struct
-                # Generate colored structure image
-                try:
-                    annotations = make_annotations(struct)
-                    with tempfile.TemporaryDirectory() as tmp:
-                        ps_path = Path(tmp) / f"sweep_{g}_{eng}.ps"
-                        ret = RNA.PS_rna_plot_a(sequence, struct, str(ps_path), annotations, "")
-                        if ps_path.exists() and ps_path.stat().st_size > 0:
-                            img_bytes, gs_err = ps_to_png_bytes(ps_path.read_bytes())
-                            if not gs_err:
-                                entry["img_bytes"] = img_bytes
-                            else:
-                                entry["error"] = f"GS: {gs_err}"
+                annotations = make_annotations(struct)
+                with tempfile.TemporaryDirectory() as tmp:
+                    ps_path = Path(tmp) / f"sweep_{g}_{eng}.ps"
+                    ret = RNA.PS_rna_plot_a(sequence, struct, str(ps_path), annotations, "")
+                    if ps_path.exists() and ps_path.stat().st_size > 0:
+                        img_bytes, gs_err = ps_to_png_bytes(ps_path.read_bytes())
+                        if not gs_err:
+                            entry["img_bytes"] = img_bytes
+                            print(f"[sweep] IMAGE  γ={g} engine={eng} → OK ({len(img_bytes)} bytes)")
                         else:
-                            entry["error"] = f"PS_rna_plot_a returned {ret}"
-                except Exception as e:
-                    entry["error"] = f"Image: {e}"
-            except RuntimeError as e:
-                entry["error"] = str(e)
-            centroid_sweep.append(entry)
+                            entry["error"] = f"GS: {gs_err}"
+                            print(f"[sweep] IMAGE  γ={g} engine={eng} → GS error: {gs_err}")
+                    else:
+                        entry["error"] = f"PS_rna_plot_a returned {ret}"
+                        print(f"[sweep] IMAGE  γ={g} engine={eng} → PS not created (ret={ret})")
+            except Exception as e:
+                entry["error"] = f"Image: {e}"
+                print(f"[sweep] IMAGE  γ={g} engine={eng} → exception: {e}")
+        except RuntimeError as e:
+            entry["error"] = str(e)
+            print(f"[sweep] FOLD   γ={g} engine={eng} → FAILED: {e}")
+        return entry
 
+    combos = [(g, eng) for g in GAMMA_VALUES for eng in CENTROID_ENGINES]
+    print(f"[sweep] Launching {len(combos)} combinations in parallel (16 workers)")
+    results_map: dict = {}
+
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        futures = {pool.submit(run_one, g, eng): (g, eng) for g, eng in combos}
+        for future in as_completed(futures):
+            g, eng = futures[future]
+            try:
+                results_map[(g, eng)] = future.result()
+            except Exception as e:
+                print(f"[sweep] FATAL  γ={g} engine={eng} → {e}")
+                results_map[(g, eng)] = {"gamma": g, "engine": eng, "structure": None, "img_bytes": None, "error": str(e)}
+
+    print(f"[sweep] All {len(combos)} combinations complete")
+    # Return in original order
+    centroid_sweep = [results_map[(g, eng)] for g, eng in combos]
     return {"centroid_sweep": centroid_sweep, "rnafold_sweep": []}
 
 
@@ -364,6 +387,7 @@ def gamma_sweep(sequence: str, fc, pair_prob: list) -> dict:
 # ---------------------------------------------------------------------------
 
 def fold_sequence(seq_id: str, sequence: str, fasta_filename: str = "", gamma: float = 1.0, engine: str = "BL", bp_weight: float = 2.0) -> dict:
+    print(f"[fold] START seq_id={seq_id!r} len={len(sequence)} gamma={gamma} engine={engine}")
     try:
         import RNA
     except ImportError:
@@ -374,22 +398,28 @@ def fold_sequence(seq_id: str, sequence: str, fasta_filename: str = "", gamma: f
         sid = safe_filename(seq_id)
 
         # MFE fold
+        print(f"[fold] MFE folding...")
         fc = RNA.fold_compound(sequence)
         (mfe_structure, mfe) = fc.mfe()
         mfe_structure = ''.join(c for c in str(mfe_structure) if c in '().')
+        print(f"[fold] MFE = {mfe:.2f} kcal/mol, {mfe_structure.count('(')} pairs")
 
         # Partition function + bpp
+        print(f"[fold] Partition function...")
         fc.exp_params_rescale(mfe)
         fc.pf()
         bppm = fc.bpp()  # 1-based, upper-triangular
+        print(f"[fold] Partition function done")
 
         # Centroid — use CentroidFold C++ binary (matches CentroidFold web server)
-        # gamma=6.0 is the default used by CentroidFold web server
+        print(f"[fold] Centroid structure (γ={gamma}, engine={engine})...")
         try:
             centroid_structure = _run_centroidfold(sequence, gamma=gamma, engine=engine, bp_weight=bp_weight)
+            print(f"[fold] Centroid = {centroid_structure.count('(')} pairs")
         except RuntimeError as e:
-            # Fallback to Python implementation if C++ binary fails
+            print(f"[fold] CentroidFold failed ({e}), falling back to Python DP")
             centroid_structure = _gamma_centroid_python(bppm, n, gamma=gamma)
+            print(f"[fold] Fallback centroid = {centroid_structure.count('(')} pairs")
 
         # Per-nucleotide pairing probability (used for colouring)
         pair_prob = [0.0] * (n + 1)
@@ -512,7 +542,9 @@ def fold_sequence(seq_id: str, sequence: str, fasta_filename: str = "", gamma: f
             dp_img_error = f"Dot-plot subprocess: {e}"
 
         # ── Gamma sweep: all gamma × engine combinations ──
+        print(f"[fold] Starting gamma sweep...")
         sweep = gamma_sweep(sequence, fc, pair_prob)
+        print(f"[fold] Gamma sweep done")
 
         return {
             "fasta_file": fasta_filename,
@@ -557,7 +589,7 @@ def _fold_error(fasta_file: str, seq_id: str, sequence: str, msg: str) -> dict:
 # ASGI app (FastAPI)
 # ---------------------------------------------------------------------------
 
-@app.function(timeout=600, volumes={IMAGES_DIR: images_vol})
+@app.function(timeout=1200, volumes={IMAGES_DIR: images_vol}, cpu=8, memory=32768)
 @modal.asgi_app()
 def web():
     from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -722,6 +754,74 @@ def web():
                 results.append(r)
 
         return results
+
+    @api.post("/predict-stream")
+    async def predict_stream(
+        request: Request,
+        files: list[UploadFile] = File(default=[]),
+        fasta_text: str = Form(default=""),
+        gamma: float = Form(default=6.0),
+        engine: str = Form(default="BL"),
+        bp_weight: float = Form(default=2.0),
+    ):
+        """
+        Streaming version of /predict.
+        Yields one NDJSON line per sequence as soon as it is done.
+        Keeps the HTTP connection alive indefinitely — no gateway timeout.
+        """
+        import asyncio
+        import json as _json
+        from fastapi.responses import StreamingResponse as _SR
+
+        if not files and not fasta_text:
+            raise HTTPException(status_code=400, detail="No files or FASTA text provided")
+
+        # Collect all (seq_id, sequence, fasta_filename) tuples up front
+        all_seqs: list[tuple[str, str, str]] = []
+        if fasta_text:
+            for seq_id, sequence in parse_fasta(fasta_text):
+                all_seqs.append((seq_id, sequence, "text_input"))
+        for upload in files:
+            try:
+                content = (await upload.read()).decode("utf-8", errors="replace")
+            except Exception as exc:
+                all_seqs.append((None, None, upload.filename, str(exc)))  # type: ignore
+                continue
+            for seq_id, sequence in parse_fasta(content):
+                all_seqs.append((seq_id, sequence, upload.filename))
+
+        def process_one(seq_id, sequence, fasta_filename) -> str:
+            r = fold_sequence(seq_id, sequence, fasta_filename, gamma=gamma, engine=engine, bp_weight=bp_weight)
+            colored_bytes     = r.pop("colored_img_bytes", None)
+            centroid_bytes    = r.pop("centroid_img_bytes", None)
+            dp_bytes          = r.pop("dp_img_bytes", None)
+            centroid_dp_bytes = r.pop("centroid_dp_img_bytes", None)
+            r["colored_img_url"]     = make_url(request, save_image(colored_bytes))     if colored_bytes     else None
+            r["centroid_img_url"]    = make_url(request, save_image(centroid_bytes))    if centroid_bytes    else None
+            r["dp_img_url"]          = make_url(request, save_image(dp_bytes))          if dp_bytes          else None
+            r["centroid_dp_img_url"] = make_url(request, save_image(centroid_dp_bytes)) if centroid_dp_bytes else None
+            for entry in r.get("centroid_sweep", []):
+                b = entry.pop("img_bytes", None)
+                entry["img_url"] = make_url(request, save_image(b)) if b else None
+            return _json.dumps(r) + "\n"
+
+        async def generator():
+            loop = asyncio.get_event_loop()
+            total = len(all_seqs)
+            print(f"[stream] {total} sequences to process")
+            for i, item in enumerate(all_seqs):
+                if len(item) == 4:
+                    # parse error placeholder
+                    _, _, fname, err = item
+                    yield _json.dumps(_api_error(fname, err)) + "\n"
+                    continue
+                seq_id, sequence, fasta_filename = item
+                print(f"[stream] Processing {i+1}/{total}: {seq_id!r}")
+                line = await loop.run_in_executor(None, process_one, seq_id, sequence, fasta_filename)
+                print(f"[stream] Done {i+1}/{total}: {seq_id!r}")
+                yield line
+
+        return _SR(generator(), media_type="application/x-ndjson")
 
     return api
 

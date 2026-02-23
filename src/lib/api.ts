@@ -2,6 +2,84 @@ import type { SequenceResult } from './types';
 
 const ENDPOINT = import.meta.env.VITE_MODAL_ENDPOINT ?? 'http://localhost:8000';
 
+function buildForm(
+  files: File[],
+  fastaText: string,
+  gamma: number,
+  engine: string,
+  bpWeight: number,
+): FormData {
+  const form = new FormData();
+  for (const file of files) {
+    form.append('files', file, file.name);
+  }
+  form.append('fasta_text', fastaText);
+  form.append('gamma', gamma.toString());
+  form.append('engine', engine);
+  form.append('bp_weight', bpWeight.toString());
+  return form;
+}
+
+/**
+ * Streaming version — calls onResult for each sequence as it completes.
+ * Uses NDJSON (one JSON object per line) so the connection never times out.
+ */
+export async function predictStructuresStream(
+  files: File[],
+  fastaText: string = '',
+  gamma: number = 6.0,
+  engine: string = 'BL',
+  bpWeight: number = 2.0,
+  onResult: (r: SequenceResult) => void,
+  onDone: () => void,
+  onError: (msg: string) => void,
+): Promise<void> {
+  const form = buildForm(files, fastaText, gamma, engine, bpWeight);
+
+  let res: Response;
+  try {
+    res = await fetch(`${ENDPOINT}/predict-stream`, { method: 'POST', body: form });
+  } catch (e) {
+    onError(e instanceof Error ? e.message : String(e));
+    return;
+  }
+
+  if (!res.ok) {
+    let detail = `HTTP ${res.status}`;
+    try { const b = await res.json(); detail = b.detail ?? detail; } catch { /* ignore */ }
+    onError(detail);
+    return;
+  }
+
+  const reader = res.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() ?? '';
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      try {
+        onResult(JSON.parse(trimmed) as SequenceResult);
+      } catch {
+        /* skip malformed line */
+      }
+    }
+  }
+
+  // Flush any remaining buffer
+  if (buffer.trim()) {
+    try { onResult(JSON.parse(buffer.trim()) as SequenceResult); } catch { /* ignore */ }
+  }
+
+  onDone();
+}
+
 export async function predictStructures(
   files: File[], 
   fastaText: string = '',
@@ -9,18 +87,7 @@ export async function predictStructures(
   engine: string = 'BL',
   bpWeight: number = 2.0
 ): Promise<SequenceResult[]> {
-  const form = new FormData();
-  
-  // Add files
-  for (const file of files) {
-    form.append('files', file, file.name);
-  }
-  
-  // Add all parameters as form fields
-  form.append('fasta_text', fastaText);
-  form.append('gamma', gamma.toString());
-  form.append('engine', engine);
-  form.append('bp_weight', bpWeight.toString());
+  const form = buildForm(files, fastaText, gamma, engine, bpWeight);
 
   const res = await fetch(`${ENDPOINT}/predict`, {
     method: 'POST',

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { UploadZone } from './components/UploadZone';
 import { ColorLegend } from './components/ColorLegend';
 import { SequencePage } from './components/SequencePage';
-import { predictStructures } from './lib/api';
+import { predictStructuresStream } from './lib/api';
 import type { SequenceResult } from './lib/types';
 import { Download } from 'lucide-react';
 
@@ -41,6 +41,7 @@ export default function App() {
   const [fastaText, setFastaText]       = useState('');
   const [results, setResults]           = useState<SequenceResult[]>([]);
   const [loading, setLoading]           = useState(false);
+  const [progress, setProgress]         = useState<string | null>(null);
   const [error, setError]               = useState<string | null>(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [gamma, setGamma]               = useState(6.0);
@@ -50,18 +51,33 @@ export default function App() {
   const handleRun = async () => {
     if (!files.length && !fastaText.trim()) return;
     setLoading(true);
+    setProgress('Starting...');
     setError(null);
     setResults([]);
     setSelectedIndex(0);
-    try {
-      const bpWeight = Math.pow(2, bpWeightExp);
-      const data = await predictStructures(files, fastaText, gamma, engine, bpWeight);
-      setResults(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
-    }
+    const bpWeight = Math.pow(2, bpWeightExp);
+    let count = 0;
+    await predictStructuresStream(
+      files,
+      fastaText,
+      gamma,
+      engine,
+      bpWeight,
+      (result) => {
+        count += 1;
+        setProgress(`Processing sequence ${count}...`);
+        setResults(prev => [...prev, result]);
+      },
+      () => {
+        setLoading(false);
+        setProgress(null);
+      },
+      (msg) => {
+        setError(msg);
+        setLoading(false);
+        setProgress(null);
+      },
+    );
   };
 
   // Keyboard navigation
@@ -366,8 +382,8 @@ export default function App() {
           </div>
         )}
 
-        {/* Loading */}
-        {loading && (
+        {/* Loading spinner — only shown before first result arrives */}
+        {loading && !current && (
           <div className="flex-1 flex flex-col items-center justify-center gap-6">
             <div
               className="animate-pulse-slow"
@@ -384,13 +400,13 @@ export default function App() {
               <span style={{ fontSize: '32px', color: 'var(--text-placeholder)' }}>↑</span>
             </div>
             <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-              Processing {files.length} file{files.length !== 1 ? 's' : ''}...
+              {progress ?? `Processing ${files.length} file${files.length !== 1 ? 's' : ''}...`}
             </p>
           </div>
         )}
 
-        {/* Full-page sequence view */}
-        {!loading && current && (
+        {/* Full-page sequence view — shown during streaming too */}
+        {current && (
           <SequencePage
             result={current}
             index={selectedIndex}
