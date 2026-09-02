@@ -76,6 +76,7 @@ export default function App() {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [gamma, setGamma]               = useState(4.0);
   const [engine, setEngine]             = useState('BL');
+  const [sweep, setSweep]               = useState(false);
   const [bpWeightExp, setBpWeightExp]   = useState(2); // Exponent: 2^2 = 4
 
   const handleRun = async () => {
@@ -93,6 +94,7 @@ export default function App() {
       gamma,
       engine,
       bpWeight,
+      sweep,
       (result) => {
         count += 1;
         setProgress(`Processing sequence ${count}...`);
@@ -243,6 +245,14 @@ export default function App() {
                     <option value="CONTRAfold">CONTRAfold</option>
                   </select>
                 </div>
+                <label className="flex items-center gap-2 text-xs cursor-pointer"
+                  style={{ color: 'var(--text-secondary)' }}
+                  title="Folds 10 gammas x 2 engines per sequence and renders each. Roughly 20x slower.">
+                  <input type="checkbox" checked={sweep}
+                    onChange={(e) => setSweep(e.target.checked)}
+                    style={{ accentColor: 'var(--accent-red)' }} />
+                  Gamma sweep (slow)
+                </label>
                 <div className="flex flex-col gap-2">
                   <div className="flex items-center justify-between">
                     <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Base Pair Weight</span>

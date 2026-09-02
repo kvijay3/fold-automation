@@ -392,7 +392,7 @@ def gamma_sweep(sequence: str, fc, pair_prob: list) -> dict:
 # Fold one sequence
 # ---------------------------------------------------------------------------
 
-def fold_sequence(seq_id: str, sequence: str, fasta_filename: str = "", gamma: float = 1.0, engine: str = "BL", bp_weight: float = 2.0, do_sweep: bool = False) -> dict:
+def fold_sequence(seq_id: str, sequence: str, fasta_filename: str = "", gamma: float = 1.0, engine: str = "BL", bp_weight: float = 2.0) -> dict:
     print(f"[fold] START seq_id={seq_id!r} len={len(sequence)} gamma={gamma} engine={engine}")
     try:
         import RNA
@@ -557,13 +557,7 @@ def fold_sequence(seq_id: str, sequence: str, fasta_filename: str = "", gamma: f
 
         # ── Gamma sweep: all gamma × engine combinations ──
         print(f"[fold] Starting gamma sweep...")
-        # The sweep is 10 gammas x 2 engines, each rendered to PNG -- about
-        # 20x the work of the single requested gamma. Opt-in, because most
-        # requests only want the one gamma the user selected.
-        if do_sweep:
-            sweep = gamma_sweep(sequence, fc, pair_prob)
-        else:
-            sweep = {"centroid_sweep": [], "rnafold_sweep": []}
+        sweep = gamma_sweep(sequence, fc, pair_prob)
         print(f"[fold] Gamma sweep done")
 
         return {
@@ -611,23 +605,7 @@ def _fold_error(fasta_file: str, seq_id: str, sequence: str, msg: str) -> dict:
 # ASGI app (FastAPI)
 # ---------------------------------------------------------------------------
 
-@app.function(timeout=900, cpu=2, memory=8192, max_containers=40)
-def fold_one_remote(job: dict) -> dict:
-    """Fold a single sequence in its own container.
-
-    Used with .map() so a 94-sequence request fans out across containers
-    instead of running serially in the web container. Returns image bytes
-    rather than URLs; the web container persists them to the Volume, which
-    keeps all Volume writes on one writer and avoids commit races.
-    """
-    return fold_sequence(
-        job["seq_id"], job["sequence"], job.get("fasta_filename", ""),
-        gamma=job.get("gamma", 4.0), engine=job.get("engine", "BL"),
-        bp_weight=job.get("bp_weight", 2.0), do_sweep=job.get("do_sweep", False),
-    )
-
-
-@app.function(timeout=3600, volumes={IMAGES_DIR: images_vol}, cpu=4, memory=16384)
+@app.function(timeout=1200, volumes={IMAGES_DIR: images_vol}, cpu=8, memory=32768)
 @modal.asgi_app()
 def web():
     from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -807,7 +785,6 @@ def web():
         gamma: float = Form(default=4.0),
         engine: str = Form(default="BL"),
         bp_weight: float = Form(default=2.0),
-        sweep: bool = Form(default=False),
     ):
         """
         Streaming version of /predict.
@@ -835,8 +812,8 @@ def web():
             for seq_id, sequence in parse_fasta(content):
                 all_seqs.append((seq_id, sequence, upload.filename))
 
-        def persist(r: dict) -> str:
-            """Move image bytes into the Volume and swap in URLs."""
+        def process_one(seq_id, sequence, fasta_filename) -> str:
+            r = fold_sequence(seq_id, sequence, fasta_filename, gamma=gamma, engine=engine, bp_weight=bp_weight)
             colored_bytes     = r.pop("colored_img_bytes", None)
             centroid_bytes    = r.pop("centroid_img_bytes", None)
             dp_bytes          = r.pop("dp_img_bytes", None)
@@ -851,55 +828,20 @@ def web():
             return _json.dumps(r) + "\n"
 
         async def generator():
+            loop = asyncio.get_event_loop()
             total = len(all_seqs)
-            print(f"[stream] {total} sequences to process (sweep={sweep})")
-
-            jobs = []
-            for item in all_seqs:
+            print(f"[stream] {total} sequences to process")
+            for i, item in enumerate(all_seqs):
                 if len(item) == 4:
+                    # parse error placeholder
                     _, _, fname, err = item
                     yield _json.dumps(_api_error(fname, err)) + "\n"
                     continue
                 seq_id, sequence, fasta_filename = item
-                jobs.append({"seq_id": seq_id, "sequence": sequence,
-                             "fasta_filename": fasta_filename, "gamma": gamma,
-                             "engine": engine, "bp_weight": bp_weight,
-                             "do_sweep": sweep})
-            if not jobs:
-                return
-
-            # Fan out across containers rather than folding serially in this
-            # one. order_outputs=False yields each result the moment it lands,
-            # so the UI fills in as they finish instead of waiting for the
-            # slowest. .map() is blocking, so it runs in a thread and results
-            # come back through a queue to keep the event loop free.
-            loop = asyncio.get_event_loop()
-            q: asyncio.Queue = asyncio.Queue()
-            SENTINEL = object()
-
-            def produce():
-                try:
-                    for r in fold_one_remote.map(jobs, order_outputs=False):
-                        loop.call_soon_threadsafe(q.put_nowait, r)
-                except Exception as exc:          # noqa: BLE001
-                    loop.call_soon_threadsafe(q.put_nowait, exc)
-                finally:
-                    loop.call_soon_threadsafe(q.put_nowait, SENTINEL)
-
-            loop.run_in_executor(None, produce)
-
-            done = 0
-            while True:
-                item = await q.get()
-                if item is SENTINEL:
-                    break
-                if isinstance(item, Exception):
-                    print(f"[stream] map failed: {item}")
-                    yield _json.dumps(_api_error("", str(item))) + "\n"
-                    break
-                done += 1
-                print(f"[stream] Done {done}/{len(jobs)}: {item.get('seq_id')!r}")
-                yield persist(item)
+                print(f"[stream] Processing {i+1}/{total}: {seq_id!r}")
+                line = await loop.run_in_executor(None, process_one, seq_id, sequence, fasta_filename)
+                print(f"[stream] Done {i+1}/{total}: {seq_id!r}")
+                yield line
 
         return _SR(generator(), media_type="application/x-ndjson")
 
