@@ -132,7 +132,7 @@ def ps_to_png_bytes(ps_content: bytes) -> tuple[bytes | None, str | None]:
 # CentroidFold C++ binary wrapper
 # ---------------------------------------------------------------------------
 
-def _run_centroidfold(sequence: str, gamma: float = 6.0, engine: str = "BL", bp_weight: float = 2.0) -> str:
+def _run_centroidfold(sequence: str, gamma: float = 4.0, engine: str = "BL", bp_weight: float = 2.0) -> str:
     """
     Run CentroidFold C++ binary to compute centroid structure.
     
@@ -141,7 +141,7 @@ def _run_centroidfold(sequence: str, gamma: float = 6.0, engine: str = "BL", bp_
     
     Args:
         sequence: RNA sequence
-        gamma: Gamma parameter for centroid calculation (default 6.0)
+        gamma: Gamma parameter for centroid calculation (default 4.0)
         engine: Inference engine - "BL" (McCaskill), "CONTRAfold", "RNAfold" (default "BL")
         bp_weight: Weight of base pairs (default 2.0)
         
@@ -162,9 +162,15 @@ def _run_centroidfold(sequence: str, gamma: float = 6.0, engine: str = "BL", bp_
         # Add engine parameter
         if engine == "CONTRAfold":
             cmd.extend(["--engine", "CONTRAfold"])
-        elif engine == "RNAfold":
-            cmd.extend(["--engine", "RNAfold"])
-        # BL (McCaskill) is default, no flag needed
+        # BL is McCaskill, which is centroid_fold's own default, so no flag.
+        # "RNAfold" is NOT a valid engine for this binary -- passing it made
+        # centroid_fold exit non-zero, which silently routed the request into
+        # the Python DP fallback below and returned structures from a
+        # different algorithm. Reject it explicitly instead.
+        elif engine not in ("BL", "McCaskill", ""):
+            raise RuntimeError(
+                f"unsupported engine {engine!r}; centroid_fold accepts "
+                "CONTRAfold, McCaskill, pfold, AUX")
         
         # Add base pair weight if not default
         if bp_weight != 2.0:
@@ -413,12 +419,20 @@ def fold_sequence(seq_id: str, sequence: str, fasta_filename: str = "", gamma: f
 
         # Centroid — use CentroidFold C++ binary (matches CentroidFold web server)
         print(f"[fold] Centroid structure (γ={gamma}, engine={engine})...")
+        centroid_method = None
+        centroid_method_error = None
         try:
             centroid_structure = _run_centroidfold(sequence, gamma=gamma, engine=engine, bp_weight=bp_weight)
+            centroid_method = "centroid_fold"
             print(f"[fold] Centroid = {centroid_structure.count('(')} pairs")
         except RuntimeError as e:
+            # The DP below optimises a different objective, so its structures
+            # are NOT CentroidFold output. Report that to the client rather
+            # than letting it pass as the real thing.
             print(f"[fold] CentroidFold failed ({e}), falling back to Python DP")
             centroid_structure = _gamma_centroid_python(bppm, n, gamma=gamma)
+            centroid_method = "python_dp_fallback"
+            centroid_method_error = str(e)
             print(f"[fold] Fallback centroid = {centroid_structure.count('(')} pairs")
 
         # Per-nucleotide pairing probability (used for colouring)
@@ -558,6 +572,8 @@ def fold_sequence(seq_id: str, sequence: str, fasta_filename: str = "", gamma: f
             "centroid_img_bytes": centroid_img_bytes,
             "dp_img_bytes": dp_img_bytes,
             "centroid_dp_img_bytes": centroid_dp_img_bytes,
+            "centroid_method": centroid_method,
+            "centroid_method_error": centroid_method_error,
             "centroid_sweep": sweep["centroid_sweep"],
             "rnafold_sweep": sweep["rnafold_sweep"],
             "error": None,
@@ -676,7 +692,7 @@ def web():
         request: Request,
         files: list[UploadFile] = File(default=[]),
         fasta_text: str = Form(default=""),
-        gamma: float = Form(default=6.0),
+        gamma: float = Form(default=4.0),
         engine: str = Form(default="BL"),
         bp_weight: float = Form(default=2.0),
     ):
@@ -686,7 +702,7 @@ def web():
         Args:
             files: FASTA files to process (optional)
             fasta_text: Direct FASTA text input (optional)
-            gamma: Gamma parameter for centroid structure (default 6.0, range 1-10)
+            gamma: Gamma parameter for centroid structure (default 4.0, range 1-10)
                    Higher values favor more base pairs. CentroidFold web server uses 6.0.
             engine: Inference engine - "BL" (McCaskill), "CONTRAfold", "RNAfold" (default "BL")
             bp_weight: Weight of base pairs (default 2.0)
@@ -760,7 +776,7 @@ def web():
         request: Request,
         files: list[UploadFile] = File(default=[]),
         fasta_text: str = Form(default=""),
-        gamma: float = Form(default=6.0),
+        gamma: float = Form(default=4.0),
         engine: str = Form(default="BL"),
         bp_weight: float = Form(default=2.0),
     ):
